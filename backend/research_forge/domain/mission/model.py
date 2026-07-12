@@ -81,6 +81,7 @@ class Mission:
     spec_sha256: str
     normalized_spec_json: str
     created_at: datetime
+    original_spec_json: str = ""
     status: MissionStatus = MissionStatus.DRAFT
     version: int = 0
 
@@ -92,12 +93,14 @@ class Mission:
         spec_sha256: str,
         normalized_spec_json: str,
         created_at: datetime,
+        original_spec_json: str | None = None,
     ) -> Mission:
         return cls(
             mission_id=mission_id,
             spec_sha256=spec_sha256,
             normalized_spec_json=normalized_spec_json,
             created_at=created_at,
+            original_spec_json=original_spec_json or normalized_spec_json,
         )
 
     def mark_ready(self) -> None:

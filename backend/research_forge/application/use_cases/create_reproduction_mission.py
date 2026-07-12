@@ -62,6 +62,7 @@ class CreateReproductionMission:
             spec_sha256=spec.sha256,
             normalized_spec_json=spec.normalized_json,
             created_at=now,
+            original_spec_json=spec.original_json,
         )
         mission.mark_ready()
         task = Task(

@@ -30,6 +30,7 @@ class BundleView:
 @dataclass(frozen=True, slots=True)
 class _BundleFacts:
     mission_id: str
+    original_spec_json: str
     normalized_spec_json: str
     spec_sha256: str
     metric_artifact: ArtifactRef
@@ -190,6 +191,7 @@ class CompleteReproductionMission:
             self._unit_of_work.commit()
         return _BundleFacts(
             mission_id=str(mission.mission_id),
+            original_spec_json=mission.original_spec_json,
             normalized_spec_json=mission.normalized_spec_json,
             spec_sha256=mission.spec_sha256,
             metric_artifact=metric.artifact,
@@ -204,6 +206,7 @@ class CompleteReproductionMission:
         )
 
     def _material(self, facts: _BundleFacts, source_archive: bytes) -> BundleBuildInput:
+        reproduction_spec_schema_version = json.loads(facts.normalized_spec_json)["schema_version"]
         manifest = {
             "bundle_schema_version": 1,
             "metric": {
@@ -212,7 +215,18 @@ class CompleteReproductionMission:
                 "value": facts.metric_value,
             },
             "mission_id": facts.mission_id,
+            "reproduction_spec_schema_version": reproduction_spec_schema_version,
             "source_archive_sha256": hashlib.sha256(source_archive).hexdigest(),
+            "spec_sha256": facts.spec_sha256,
+        }
+        evaluation_report = {
+            "evaluation_report_schema_version": 1,
+            "metric": {
+                "artifact_sha256": facts.metric_artifact.sha256,
+                "unit": facts.metric_unit,
+                "value": facts.metric_value,
+            },
+            "reproduction_spec_schema_version": reproduction_spec_schema_version,
             "spec_sha256": facts.spec_sha256,
         }
         environment = {
@@ -224,7 +238,9 @@ class CompleteReproductionMission:
         reproduce_script = self._reproduce_script(facts.command)
         return BundleBuildInput(
             manifest_json=json.dumps(manifest, sort_keys=True, separators=(",", ":")),
+            original_spec_json=facts.original_spec_json,
             normalized_spec_json=facts.normalized_spec_json,
+            evaluation_report_json=json.dumps(evaluation_report, sort_keys=True, separators=(",", ":")),
             environment_lock_json=json.dumps(environment, sort_keys=True, separators=(",", ":")),
             dataset_manifest_json=json.dumps(dataset, sort_keys=True, separators=(",", ":")),
             claims_jsonl=facts.claims_jsonl,

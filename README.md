@@ -50,7 +50,7 @@ Mission -> Task -> lease-owned Attempt -> Operation Ledger
 - `ReproductionSpec v1` JSON-schema validation, cross-field rules, prerequisite checks, and immutable normalized specs.
 - Durable Mission / Task / Attempt state, optimistic versions, lease epochs, heartbeats, cancellation, Audit events, and Outbox events.
 - Git baseline and bounded candidate worktrees with idempotent operation records and strict patch budgets.
-- Content-addressed artifacts with SHA-256 verification and safe deterministic Bundle replay extraction.
+- Content-addressed artifacts with SHA-256 verification and safe deterministic Bundle replay extraction; each Bundle preserves original and normalized Specs plus a structured evaluation report bound to the Spec hash.
 - Offline Docker execution on Linux with no network, read-only root filesystem, dropped capabilities, non-root user, and a broker boundary.
 - Deterministic metric extraction, verified claims, and evidence closure.
 - One bounded repair flow: proposal -> persisted approval -> fresh child Attempt -> candidate commit -> candidate run -> evidence-gated Bundle.

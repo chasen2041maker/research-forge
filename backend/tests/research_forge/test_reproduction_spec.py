@@ -88,6 +88,8 @@ def test_validator_canonicalizes_and_hashes_the_frozen_contract(
         spec, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
     )
     assert accepted.sha256 == hashlib.sha256(accepted.normalized_json.encode("utf-8")).hexdigest()
+    assert json.loads(accepted.original_json) == accepted.payload
+    assert accepted.original_json != accepted.normalized_json
 
 
 def test_validator_accepts_the_bounded_one_candidate_repair_contract(

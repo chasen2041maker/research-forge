@@ -65,6 +65,7 @@ def test_sqlalchemy_uow_persists_state_audit_and_outbox_atomically() -> None:
         task = unit_of_work.get_task("task-1")
         attempt = unit_of_work.get_attempt("attempt-1")
         assert mission is not None and task is not None and attempt is not None
+        assert mission.original_spec_json == "{}"
         mission.start()
         task.start()
         attempt.claim(owner="worker-a", now=now, lease_expires_at=now + timedelta(seconds=30))

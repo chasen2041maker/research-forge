@@ -8,7 +8,9 @@ from dataclasses import dataclass
 @dataclass(frozen=True, slots=True)
 class BundleBuildInput:
     manifest_json: str
+    original_spec_json: str
     normalized_spec_json: str
+    evaluation_report_json: str
     environment_lock_json: str
     dataset_manifest_json: str
     claims_jsonl: str

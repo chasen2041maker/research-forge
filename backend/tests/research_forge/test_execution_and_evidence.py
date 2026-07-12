@@ -228,12 +228,23 @@ def test_no_llm_baseline_flow_creates_verified_metric_evidence(tmp_path: Path) -
             "bundle-manifest.json",
             "claims.jsonl",
             "evidence.jsonl",
+            "evaluation-report.json",
+            "original-mission-spec.json",
             "reproduce.sh",
             "source.tar",
             "artifacts/metrics.json",
         }.issubset(archive.namelist())
         source_archive = archive.read("source.tar")
         safe_extract_script = archive.read("safe_extract.py")
+        original_spec_payload = archive.read("original-mission-spec.json")
+        normalized_spec_payload = archive.read("mission-spec.json")
+        original_spec = json.loads(original_spec_payload)
+        normalized_spec = json.loads(normalized_spec_payload)
+        evaluation_report = json.loads(archive.read("evaluation-report.json"))
+    assert original_spec == normalized_spec
+    assert original_spec_payload != normalized_spec_payload
+    assert evaluation_report["reproduction_spec_schema_version"] == 1
+    assert evaluation_report["spec_sha256"] == mission.spec_sha256
     bundle_directory = tmp_path / "bundle-content"
     bundle_directory.mkdir()
     (bundle_directory / "source.tar").write_bytes(source_archive)

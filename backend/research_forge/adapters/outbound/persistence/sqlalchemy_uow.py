@@ -145,6 +145,7 @@ class SqlAlchemyUnitOfWork:
             spec_sha256=row.spec_sha256,
             normalized_spec_json=row.normalized_spec_json,
             created_at=row.created_at,
+            original_spec_json=row.original_spec_json,
             status=MissionStatus(row.status),
             version=row.version,
         )
@@ -402,6 +403,7 @@ class SqlAlchemyUnitOfWork:
             values = {
                 "spec_sha256": mission.spec_sha256,
                 "normalized_spec_json": mission.normalized_spec_json,
+                "original_spec_json": mission.original_spec_json,
                 "status": str(mission.status),
                 "version": mission.version,
                 "created_at": mission.created_at,

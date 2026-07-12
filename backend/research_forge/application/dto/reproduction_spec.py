@@ -25,6 +25,7 @@ class ReproductionSpec:
     """Canonical, immutable representation of an accepted mission input."""
 
     payload: Mapping[str, Any]
+    original_json: str
     normalized_json: str
     sha256: str
 
@@ -48,6 +49,13 @@ class JsonSchemaReproductionSpecValidator:
             raise ReproductionSpecValidationError(schema_errors)
 
         try:
+            original_json = json.dumps(
+                raw_spec,
+                ensure_ascii=False,
+                sort_keys=False,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
             normalized_json = json.dumps(
                 raw_spec,
                 ensure_ascii=False,
@@ -65,6 +73,7 @@ class JsonSchemaReproductionSpecValidator:
 
         return ReproductionSpec(
             payload=payload,
+            original_json=original_json,
             normalized_json=normalized_json,
             sha256=hashlib.sha256(normalized_json.encode("utf-8")).hexdigest(),
         )

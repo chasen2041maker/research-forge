@@ -43,7 +43,7 @@ Mission -> Task -> 由租约拥有的 Attempt -> Operation Ledger
 - `ReproductionSpec v1` JSON Schema 校验、跨字段规则、前置条件校验和不可变规范标准化。
 - 持久化的 Mission / Task / Attempt 状态、乐观版本、租约 epoch、心跳、取消、审计事件与 Outbox 事件。
 - 基线与受限候选 Git worktree；每个 Git、CAS 和 sandbox 副作用都有幂等操作记录。
-- 通过 SHA-256 校验的内容寻址产物，以及安全、确定的 Bundle 重放解压。
+- 通过 SHA-256 校验的内容寻址产物，以及安全、确定的 Bundle 重放解压；每个 Bundle 同时保存原始与规范化 Spec，并包含绑定 Spec hash 的结构化评测报告。
 - Linux 上的离线 Docker 执行：`--network none`、只读根文件系统、移除 capability、非 root 用户和独立 broker 边界。
 - 确定性指标提取、已验证的 Claim 和完整的 Evidence 链。
 - 一个受限修复闭环：提案 -> 持久化审批 -> 新建子 Attempt -> 候选 commit -> 候选执行 -> 证据门控 Bundle。
