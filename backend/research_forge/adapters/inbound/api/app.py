@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hmac
-from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,7 +13,7 @@ from research_forge.application.use_cases import ApprovalNotFound, MissionNotFou
 
 
 class ReproductionSpecBody(BaseModel):
-    spec: dict[str, Any]
+    spec: dict[str, object]
 
 
 class ApprovalDecisionBody(BaseModel):

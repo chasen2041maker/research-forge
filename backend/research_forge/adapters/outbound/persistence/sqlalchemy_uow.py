@@ -659,6 +659,6 @@ class SqlAlchemyUnitOfWork:
         self._evidence = {}
         self._audits = {}
         self._outbox = {}
-        self._published_outbox_at = {}
+        self._published_outbox_at: dict[str, datetime] = {}
         self._bundles = {}
         self._approvals = {}

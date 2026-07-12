@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from typing import cast
 
 from research_forge.application.dto.sandbox import SandboxResult
 from research_forge.application.ports.system import Clock, IdGenerator
@@ -77,10 +79,11 @@ class FinalizeBaselineExecution:
     ) -> FinalizedBaselineView:
         spec = self._load_spec(attempt_id)
         log_payload = sandbox_result.stdout + b"\n" + sandbox_result.stderr
-        budget = spec["budget"]
-        if len(log_payload) > budget["max_log_bytes"]:
+        budget = _required_mapping(spec, "budget")
+        repair_mode = _required_string(spec, "mode") == "repair"
+        if len(log_payload) > _required_int(budget, "max_log_bytes"):
             self._fail(
-                attempt_id, owner, epoch, expected_version, "LOG_BUDGET_EXCEEDED", spec["mode"] == "repair"
+                attempt_id, owner, epoch, expected_version, "LOG_BUDGET_EXCEEDED", repair_mode
             )
             raise BaselineValidationFailure("Sandbox log exceeded ReproductionSpec budget.")
         log_view = self._artifact_persister.execute(
@@ -96,21 +99,21 @@ class FinalizeBaselineExecution:
         )
         if sandbox_result.exit_code != 0:
             self._fail(
-                attempt_id, owner, epoch, expected_version, "SANDBOX_NONZERO_EXIT", spec["mode"] == "repair"
+                attempt_id, owner, epoch, expected_version, "SANDBOX_NONZERO_EXIT", repair_mode
             )
             raise BaselineValidationFailure(f"Sandbox command exited with {sandbox_result.exit_code}.")
 
-        metric_spec = spec["metric"]
-        metric_path = metric_spec["artifact_path"]
+        metric_spec = _required_mapping(spec, "metric")
+        metric_path = _required_string(metric_spec, "artifact_path")
         metric_payload = sandbox_result.output_files.get(metric_path)
         if metric_payload is None:
             self._fail(
-                attempt_id, owner, epoch, expected_version, "METRIC_ARTIFACT_MISSING", spec["mode"] == "repair"
+                attempt_id, owner, epoch, expected_version, "METRIC_ARTIFACT_MISSING", repair_mode
             )
             raise BaselineValidationFailure("Sandbox result did not contain the required metric artifact.")
-        if len(log_payload) + len(metric_payload) > budget["max_artifact_bytes"]:
+        if len(log_payload) + len(metric_payload) > _required_int(budget, "max_artifact_bytes"):
             self._fail(
-                attempt_id, owner, epoch, expected_version, "ARTIFACT_BUDGET_EXCEEDED", spec["mode"] == "repair"
+                attempt_id, owner, epoch, expected_version, "ARTIFACT_BUDGET_EXCEEDED", repair_mode
             )
             raise BaselineValidationFailure("Baseline artifacts exceeded ReproductionSpec budget.")
         metric_view = self._artifact_persister.execute(
@@ -127,7 +130,7 @@ class FinalizeBaselineExecution:
         validation = extract_and_validate_metric(metric_payload, self._expectation(metric_spec))
         if not validation.passed:
             self._fail(
-                attempt_id, owner, epoch, expected_version, "METRIC_EXPECTATION_FAILED", spec["mode"] == "repair"
+                attempt_id, owner, epoch, expected_version, "METRIC_EXPECTATION_FAILED", repair_mode
             )
             raise BaselineValidationFailure("Baseline metric did not satisfy the frozen expectation.")
         return self._register_verified_result(
@@ -147,12 +150,12 @@ class FinalizeBaselineExecution:
                 media_type="text/plain; charset=utf-8",
             ),
             commit_sha=commit_sha,
-            command=tuple(spec["execution"]["run_argv"]),
+            command=_required_string_tuple(_required_mapping(spec, "execution"), "run_argv"),
             environment_digest=sandbox_result.environment_digest,
             dataset_sha256=sandbox_result.dataset_sha256,
         )
 
-    def _load_spec(self, attempt_id: str) -> dict[str, object]:
+    def _load_spec(self, attempt_id: str) -> Mapping[str, object]:
         with self._unit_of_work:
             attempt = self._unit_of_work.get_attempt(attempt_id)
             if attempt is None:
@@ -163,18 +166,20 @@ class FinalizeBaselineExecution:
             mission = self._unit_of_work.get_mission(str(task.mission_id))
             if mission is None:
                 raise AttemptNotFound(f"mission for attempt {attempt_id}")
-            spec = json.loads(mission.normalized_spec_json)
+            decoded = json.loads(mission.normalized_spec_json)
             self._unit_of_work.commit()
-        return spec
+        if not isinstance(decoded, dict):
+            raise BaselineValidationFailure("Persisted ReproductionSpec must be a JSON object.")
+        return cast(Mapping[str, object], decoded)
 
     @staticmethod
-    def _expectation(metric: dict[str, object]) -> MetricExpectation:
+    def _expectation(metric: Mapping[str, object]) -> MetricExpectation:
         return MetricExpectation(
-            json_pointer=str(metric["json_pointer"]),
-            comparator=MetricComparator(str(metric["comparator"])),
-            expected_value=float(metric["expected_value"]),
-            tolerance=float(metric["tolerance"]),
-            unit=str(metric["unit"]),
+            json_pointer=_required_string(metric, "json_pointer"),
+            comparator=MetricComparator(_required_string(metric, "comparator")),
+            expected_value=_required_number(metric, "expected_value"),
+            tolerance=_required_number(metric, "tolerance"),
+            unit=_required_string(metric, "unit"),
         )
 
     def _register_verified_result(
@@ -346,3 +351,38 @@ class FinalizeBaselineExecution:
                 payload=event_payload,
             )
         )
+
+
+def _required_mapping(payload: Mapping[str, object], name: str) -> Mapping[str, object]:
+    value = payload.get(name)
+    if not isinstance(value, dict):
+        raise BaselineValidationFailure(f"Persisted ReproductionSpec field {name} must be an object.")
+    return cast(Mapping[str, object], value)
+
+
+def _required_string(payload: Mapping[str, object], name: str) -> str:
+    value = payload.get(name)
+    if not isinstance(value, str) or not value:
+        raise BaselineValidationFailure(f"Persisted ReproductionSpec field {name} must be a non-empty string.")
+    return value
+
+
+def _required_int(payload: Mapping[str, object], name: str) -> int:
+    value = payload.get(name)
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise BaselineValidationFailure(f"Persisted ReproductionSpec field {name} must be an integer.")
+    return value
+
+
+def _required_number(payload: Mapping[str, object], name: str) -> float:
+    value = payload.get(name)
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise BaselineValidationFailure(f"Persisted ReproductionSpec field {name} must be numeric.")
+    return float(value)
+
+
+def _required_string_tuple(payload: Mapping[str, object], name: str) -> tuple[str, ...]:
+    value = payload.get(name)
+    if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
+        raise BaselineValidationFailure(f"Persisted ReproductionSpec field {name} must be a string array.")
+    return tuple(value)

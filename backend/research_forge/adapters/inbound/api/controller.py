@@ -6,9 +6,13 @@ from collections.abc import Mapping
 from typing import Any
 
 from research_forge.application.use_cases import (
+    ApprovalResolutionView,
+    BundleDownload,
     CreateReproductionMission,
     DownloadBundle,
     GetMissionStatus,
+    MissionStatusView,
+    MissionView,
     ResolveApproval,
     RequestMissionCancellation,
 )
@@ -32,19 +36,19 @@ class MissionController:
         self._download_bundle = download_bundle
         self._resolve_approval = resolve_approval
 
-    def create(self, raw_spec: Mapping[str, Any]) -> object:
+    def create(self, raw_spec: Mapping[str, Any]) -> MissionView:
         return self._create_mission.execute(raw_spec)
 
-    def status(self, mission_id: str) -> object:
+    def status(self, mission_id: str) -> MissionStatusView:
         return self._get_status.execute(mission_id)
 
     def request_cancel(self, mission_id: str) -> None:
         self._request_cancellation.execute(mission_id=mission_id)
 
-    def bundle(self, mission_id: str) -> object:
+    def bundle(self, mission_id: str) -> BundleDownload:
         return self._download_bundle.execute(mission_id)
 
-    def resolve_approval(self, *, approval_id: str, approved: bool, decided_by: str) -> object:
+    def resolve_approval(self, *, approval_id: str, approved: bool, decided_by: str) -> ApprovalResolutionView:
         return self._resolve_approval.execute(
             approval_id=approval_id,
             approved=approved,

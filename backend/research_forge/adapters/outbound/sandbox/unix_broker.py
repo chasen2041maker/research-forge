@@ -29,7 +29,8 @@ class _ThreadedUnixServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
     def __init__(self, socket_path: str, executor: SandboxExecutor) -> None:
         self.executor = executor
-        super().__init__(socket_path, _BrokerRequestHandler)
+        # Typeshed models TCPServer addresses only; Unix-domain servers receive a path string at runtime.
+        super().__init__(socket_path, _BrokerRequestHandler)  # type: ignore[arg-type]
 
 
 class UnixSandboxBrokerServer:
@@ -75,11 +76,15 @@ class UnixSandboxBrokerServer:
             import grp
         except ImportError as exc:  # pragma: no cover - Windows CI does not provide POSIX groups.
             raise SandboxBrokerUnavailable("Configuring a sandbox socket group requires POSIX group support.") from exc
+        get_group = getattr(grp, "getgrnam", None)
+        change_owner = getattr(os, "chown", None)
+        if not callable(get_group) or not callable(change_owner):
+            raise SandboxBrokerUnavailable("Configuring a sandbox socket group requires POSIX ownership support.")
         try:
-            group_id = grp.getgrnam(socket_group).gr_gid
+            group_id = get_group(socket_group).gr_gid
         except KeyError as exc:
             raise SandboxBrokerUnavailable("Configured sandbox socket group does not exist.") from exc
-        os.chown(self._socket_path, -1, group_id)
+        change_owner(self._socket_path, -1, group_id)
 
 
 class UnixSandboxBrokerClient:
@@ -149,8 +154,8 @@ def _dispatch(request: Mapping[str, object], executor: SandboxExecutor) -> dict[
         return {"ok": True, "result": _result_payload(result)}
     operation_id = _required_string(request, "operation_id")
     if operation == "get_completed":
-        result = executor.get_completed(operation_id)
-        return {"ok": True, "result": None if result is None else _result_payload(result)}
+        completed = executor.get_completed(operation_id)
+        return {"ok": True, "result": None if completed is None else _result_payload(completed)}
     if operation == "cancel":
         executor.cancel(operation_id)
         return {"ok": True}
