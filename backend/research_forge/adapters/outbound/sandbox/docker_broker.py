@@ -7,7 +7,7 @@ import platform
 from collections import OrderedDict
 from concurrent.futures import Future, TimeoutError as FutureTimeout
 from pathlib import Path
-from subprocess import PIPE, Popen, TimeoutExpired, run
+from subprocess import CalledProcessError, PIPE, Popen, TimeoutExpired, run
 from threading import Lock, RLock, Thread
 from typing import BinaryIO, Mapping
 
@@ -57,6 +57,7 @@ class DockerSandboxBroker:
         except BrokerStateConflict as exc:
             raise SandboxUnavailable(str(exc)) from exc
         if existing is not None:
+            self._remove_completed_container(request)
             return existing
         future, is_leader = self._claim_execution(request.operation_id)
         if not is_leader:
@@ -110,7 +111,12 @@ class DockerSandboxBroker:
         state = self._container_state(name)
         if state is None:
             self._prepare_output_paths(request)
-            self._docker(tuple(self.build_command(request)))
+            try:
+                self._docker(tuple(self.build_command(request)))
+            except CalledProcessError as exc:
+                if not self._container_exists(name):
+                    raise SandboxUnavailable("Docker could not launch the sandbox operation container.") from exc
+                self._assert_container_matches(name, request_hash)
         else:
             self._assert_container_matches(name, request_hash)
         try:
@@ -180,8 +186,19 @@ class DockerSandboxBroker:
         if value.strip() != request_hash:
             raise SandboxUnavailable("Existing operation container has a conflicting immutable request hash.")
 
+    def _remove_completed_container(self, request: SandboxRunRequest) -> None:
+        """Remove an orphaned named container only after validating its immutable input label."""
+        name = self.container_name(request.operation_id)
+        if not self._container_exists(name):
+            return
+        self._assert_container_matches(name, self._state.request_hash(request))
+        self._docker(("rm", "-f", name), allow_failure=True)
+
     def _wait_for_container(self, name: str, timeout_seconds: int) -> None:
-        run([self._docker_binary, "wait", name], check=True, timeout=timeout_seconds, stdout=PIPE, stderr=PIPE)
+        try:
+            run([self._docker_binary, "wait", name], check=True, timeout=timeout_seconds, stdout=PIPE, stderr=PIPE)
+        except CalledProcessError as exc:
+            raise SandboxUnavailable("Docker container disappeared before a durable result was collected.") from exc
 
     def _exit_code(self, name: str) -> int:
         value = self._docker(("inspect", "--format", "{{.State.ExitCode}}", name))
@@ -248,7 +265,10 @@ class DockerSandboxBroker:
             raise SandboxUnavailable("An existing sandbox operation did not finish before the fixed timeout.") from exc
 
     def _safe_worktree_path(self, raw_path: str) -> Path:
-        worktree = Path(raw_path).resolve()
+        candidate = Path(raw_path)
+        if candidate.is_symlink():
+            raise PathSafetyViolation("Sandbox worktree may not be a symbolic link.")
+        worktree = candidate.resolve()
         try:
             worktree.relative_to(self._workspace_root)
         except ValueError as exc:
@@ -259,9 +279,17 @@ class DockerSandboxBroker:
 
     @staticmethod
     def _safe_relative_path(worktree: Path, raw_path: str) -> Path:
-        path = (worktree / raw_path).resolve()
+        relative = Path(raw_path)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise PathSafetyViolation("Sandbox path escapes the worktree.")
+        path = worktree / relative
+        cursor = worktree
+        for part in relative.parts:
+            cursor = cursor / part
+            if cursor.is_symlink():
+                raise PathSafetyViolation("Sandbox paths may not traverse symbolic links.")
         try:
-            path.relative_to(worktree)
+            path.resolve().relative_to(worktree)
         except ValueError as exc:
             raise PathSafetyViolation("Sandbox path escapes the worktree.") from exc
         return path

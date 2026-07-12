@@ -48,22 +48,29 @@ class BrokerStateStore:
             "request_hash": digest,
             "request": _request_payload(request),
         }
-        request_file = directory / "request.json"
+        request_file = self._safe_child(directory, "request.json")
         if request_file.exists():
             existing = _read_json(request_file)
             if existing != payload:
                 raise BrokerStateConflict("Operation ID is already bound to a different sandbox request.")
         else:
-            _atomic_write(request_file, _canonical(payload))
+            try:
+                _create_exclusive(request_file, _canonical(payload))
+            except FileExistsError:
+                existing = _read_json(self._safe_child(directory, "request.json"))
+                if existing != payload:
+                    raise BrokerStateConflict("Operation ID is already bound to a different sandbox request.")
         return digest
 
     def load_completed(self, operation_id: str, request: SandboxRunRequest | None = None) -> SandboxResult | None:
         directory = self._directory(operation_id)
-        result_file = directory / "result.json"
-        if not result_file.exists():
+        if not directory.exists():
             return None
         self._assert_safe_directory(directory)
-        request_metadata = _read_json(directory / "request.json")
+        result_file = self._safe_child(directory, "result.json")
+        if not result_file.exists():
+            return None
+        request_metadata = _read_json(self._safe_child(directory, "request.json"))
         result = _read_json(result_file)
         if result.get("schema_version") != STATE_SCHEMA_VERSION or result.get("operation_id") != operation_id:
             raise BrokerStateConflict("Broker result metadata is invalid.")
@@ -90,8 +97,9 @@ class BrokerStateStore:
             if existing != result:
                 raise BrokerStateConflict("Completed sandbox result conflicts with durable broker state.")
             return
-        outputs_directory = directory / "outputs"
+        outputs_directory = self._safe_child(directory, "outputs")
         outputs_directory.mkdir(mode=0o750, exist_ok=True)
+        self._assert_safe_directory(outputs_directory)
         files: dict[str, dict[str, object]] = {}
         for name, payload in result.output_files.items():
             target = self._safe_child(outputs_directory, name)
@@ -116,13 +124,14 @@ class BrokerStateStore:
         _atomic_write(directory / "result.json", _canonical(metadata))
 
     def _read_result(self, directory: Path, metadata: Mapping[str, object]) -> SandboxResult:
-        stdout = _verified_bytes(directory / "stdout.bin", _mapping(metadata.get("stdout"), "stdout"))
-        stderr = _verified_bytes(directory / "stderr.bin", _mapping(metadata.get("stderr"), "stderr"))
-        outputs = {
-            name: _verified_bytes(self._safe_child(directory / "outputs", name), _mapping(item, "output"))
-            for name, item in _mapping(metadata.get("outputs"), "outputs").items()
-            if isinstance(name, str)
-        }
+        stdout = _verified_bytes(self._safe_child(directory, "stdout.bin"), _mapping(metadata.get("stdout"), "stdout"))
+        stderr = _verified_bytes(self._safe_child(directory, "stderr.bin"), _mapping(metadata.get("stderr"), "stderr"))
+        outputs_root = self._safe_child(directory, "outputs")
+        outputs: dict[str, bytes] = {}
+        for name, item in _mapping(metadata.get("outputs"), "outputs").items():
+            if not isinstance(name, str):
+                raise BrokerStateConflict("Broker output name must be a string.")
+            outputs[name] = _verified_bytes(self._safe_child(outputs_root, name), _mapping(item, "output"))
         return SandboxResult(
             operation_id=_string(metadata, "operation_id"),
             execution_id=_string(metadata, "execution_id"),
@@ -141,13 +150,19 @@ class BrokerStateStore:
         return self._root / hashlib.sha256(operation_id.encode("utf-8")).hexdigest()[:20]
 
     def _safe_child(self, root: Path, relative: str) -> Path:
-        target = (root / relative).resolve()
+        relative_path = Path(relative)
+        if relative_path.is_absolute() or ".." in relative_path.parts:
+            raise PathSafetyViolation("Broker state path escapes its operation directory.")
+        target = root / relative_path
+        cursor = root
+        for part in relative_path.parts:
+            cursor = cursor / part
+            if cursor.is_symlink():
+                raise PathSafetyViolation("Broker state may not traverse symbolic links.")
         try:
-            target.relative_to(root.resolve())
+            target.resolve().relative_to(root.resolve())
         except ValueError as exc:
             raise PathSafetyViolation("Broker state path escapes its operation directory.") from exc
-        if target.is_symlink():
-            raise PathSafetyViolation("Broker state may not traverse symbolic links.")
         return target
 
     @staticmethod
@@ -164,6 +179,19 @@ def _atomic_write(path: Path, payload: bytes) -> None:
         handle.flush()
         os.fsync(handle.fileno())
     os.replace(temporary, path)
+    _fsync_directory(path.parent)
+
+
+def _create_exclusive(path: Path, payload: bytes) -> None:
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o640)
+    try:
+        remaining = memoryview(payload)
+        while remaining:
+            written = os.write(descriptor, remaining)
+            remaining = remaining[written:]
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
     _fsync_directory(path.parent)
 
 

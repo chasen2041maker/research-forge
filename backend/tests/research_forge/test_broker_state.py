@@ -7,6 +7,7 @@ import json
 
 from research_forge.adapters.outbound.sandbox.broker_state import BrokerStateConflict, BrokerStateStore
 from research_forge.application.dto import NetworkPolicy, SandboxResult, SandboxRunRequest
+from research_forge.domain.errors import PathSafetyViolation
 
 
 def _request(operation_id: str = "operation-1", argv: tuple[str, ...] = ("python", "evaluate.py")) -> SandboxRunRequest:
@@ -50,4 +51,21 @@ def test_state_store_detects_request_metadata_tampering(tmp_path) -> None:
     (directory / "request.json").write_text(json.dumps(metadata), encoding="utf-8")
 
     with pytest.raises(BrokerStateConflict, match="payload"):
+        state.load_completed(request.operation_id, request)
+
+
+def test_state_store_rejects_a_symlinked_payload(tmp_path) -> None:
+    request = _request()
+    state = BrokerStateStore(tmp_path / "broker-state")
+    state.persist_completed(request, _result(request))
+    directory = next((tmp_path / "broker-state").iterdir())
+    outside = tmp_path / "outside.bin"
+    outside.write_bytes(b"outside")
+    (directory / "stdout.bin").unlink()
+    try:
+        (directory / "stdout.bin").symlink_to(outside)
+    except OSError:
+        pytest.skip("This filesystem does not permit symbolic-link creation.")
+
+    with pytest.raises(PathSafetyViolation, match="symbolic links"):
         state.load_completed(request.operation_id, request)
