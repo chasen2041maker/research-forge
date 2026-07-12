@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import datetime
 
 from research_forge.application.dto.sandbox import SandboxResult
 from research_forge.application.ports.system import Clock, IdGenerator
@@ -23,7 +24,17 @@ from research_forge.domain.evidence import (
     MetricValidation,
     extract_and_validate_metric,
 )
-from research_forge.domain.mission import AuditEvent, MissionStatus
+from research_forge.domain.mission import (
+    Attempt,
+    AttemptId,
+    AuditEvent,
+    MissionId,
+    MissionStatus,
+    OutboxEvent,
+    Task,
+    TaskId,
+    TaskType,
+)
 
 
 class BaselineValidationFailure(ValueError):
@@ -68,7 +79,9 @@ class FinalizeBaselineExecution:
         log_payload = sandbox_result.stdout + b"\n" + sandbox_result.stderr
         budget = spec["budget"]
         if len(log_payload) > budget["max_log_bytes"]:
-            self._fail(attempt_id, owner, epoch, expected_version, "LOG_BUDGET_EXCEEDED")
+            self._fail(
+                attempt_id, owner, epoch, expected_version, "LOG_BUDGET_EXCEEDED", spec["mode"] == "repair"
+            )
             raise BaselineValidationFailure("Sandbox log exceeded ReproductionSpec budget.")
         log_view = self._artifact_persister.execute(
             attempt_id=attempt_id,
@@ -82,17 +95,23 @@ class FinalizeBaselineExecution:
             target_path="execution.log",
         )
         if sandbox_result.exit_code != 0:
-            self._fail(attempt_id, owner, epoch, expected_version, "SANDBOX_NONZERO_EXIT")
+            self._fail(
+                attempt_id, owner, epoch, expected_version, "SANDBOX_NONZERO_EXIT", spec["mode"] == "repair"
+            )
             raise BaselineValidationFailure(f"Sandbox command exited with {sandbox_result.exit_code}.")
 
         metric_spec = spec["metric"]
         metric_path = metric_spec["artifact_path"]
         metric_payload = sandbox_result.output_files.get(metric_path)
         if metric_payload is None:
-            self._fail(attempt_id, owner, epoch, expected_version, "METRIC_ARTIFACT_MISSING")
+            self._fail(
+                attempt_id, owner, epoch, expected_version, "METRIC_ARTIFACT_MISSING", spec["mode"] == "repair"
+            )
             raise BaselineValidationFailure("Sandbox result did not contain the required metric artifact.")
         if len(log_payload) + len(metric_payload) > budget["max_artifact_bytes"]:
-            self._fail(attempt_id, owner, epoch, expected_version, "ARTIFACT_BUDGET_EXCEEDED")
+            self._fail(
+                attempt_id, owner, epoch, expected_version, "ARTIFACT_BUDGET_EXCEEDED", spec["mode"] == "repair"
+            )
             raise BaselineValidationFailure("Baseline artifacts exceeded ReproductionSpec budget.")
         metric_view = self._artifact_persister.execute(
             attempt_id=attempt_id,
@@ -107,7 +126,9 @@ class FinalizeBaselineExecution:
         )
         validation = extract_and_validate_metric(metric_payload, self._expectation(metric_spec))
         if not validation.passed:
-            self._fail(attempt_id, owner, epoch, expected_version, "METRIC_EXPECTATION_FAILED")
+            self._fail(
+                attempt_id, owner, epoch, expected_version, "METRIC_EXPECTATION_FAILED", spec["mode"] == "repair"
+            )
             raise BaselineValidationFailure("Baseline metric did not satisfy the frozen expectation.")
         return self._register_verified_result(
             attempt_id=attempt_id,
@@ -247,7 +268,15 @@ class FinalizeBaselineExecution:
             claim_id=claim.claim_id,
         )
 
-    def _fail(self, attempt_id: str, owner: str, epoch: int, expected_version: int, failure_code: str) -> None:
+    def _fail(
+        self,
+        attempt_id: str,
+        owner: str,
+        epoch: int,
+        expected_version: int,
+        failure_code: str,
+        repair_mode: bool,
+    ) -> None:
         now = self._clock.now()
         with self._unit_of_work:
             attempt = self._unit_of_work.get_attempt(attempt_id)
@@ -268,5 +297,52 @@ class FinalizeBaselineExecution:
                 failure_code=failure_code,
             )
             task.fail()
-            mission.fail()
+            if repair_mode and task.task_type is TaskType.BASELINE_REPRODUCTION:
+                self._schedule_single_repair_attempt(mission_id=str(mission.mission_id), now=now)
+            else:
+                mission.fail()
             self._unit_of_work.commit()
+
+    def _schedule_single_repair_attempt(self, *, mission_id: str, now: datetime) -> None:
+        existing = self._unit_of_work.get_tasks_for_mission(mission_id)
+        if any(task.task_type is TaskType.REPAIR_CANDIDATE for task in existing):
+            return
+        repair_task = Task(
+            task_id=TaskId(self._id_generator.new("task")),
+            mission_id=MissionId(mission_id),
+            task_type=TaskType.REPAIR_CANDIDATE,
+            created_at=now,
+        )
+        repair_attempt = Attempt(
+            attempt_id=AttemptId(self._id_generator.new("attempt")),
+            task_id=repair_task.task_id,
+            attempt_number=1,
+            lease_epoch=0,
+            created_at=now,
+        )
+        event_payload = {
+            "mission_id": mission_id,
+            "task_id": str(repair_task.task_id),
+            "attempt_id": str(repair_attempt.attempt_id),
+        }
+        self._unit_of_work.add_task(repair_task)
+        self._unit_of_work.add_attempt(repair_attempt)
+        self._unit_of_work.add_audit_event(
+            AuditEvent(
+                event_id=self._id_generator.new("audit"),
+                aggregate_type="mission",
+                aggregate_id=mission_id,
+                event_type="repair.attempt_scheduled",
+                occurred_at=now,
+                data=event_payload,
+            )
+        )
+        self._unit_of_work.add_outbox_event(
+            OutboxEvent(
+                event_id=self._id_generator.new("outbox"),
+                topic="repair_attempt.ready",
+                aggregate_id=mission_id,
+                occurred_at=now,
+                payload=event_payload,
+            )
+        )

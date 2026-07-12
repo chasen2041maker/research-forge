@@ -133,8 +133,14 @@ class InMemoryUnitOfWork:
     def get_task(self, task_id: str) -> Task | None:
         return self._read().tasks.get(task_id)
 
+    def get_tasks_for_mission(self, mission_id: str) -> tuple[Task, ...]:
+        return tuple(task for task in self._read().tasks.values() if str(task.mission_id) == mission_id)
+
     def get_attempt(self, attempt_id: str) -> Attempt | None:
         return self._read().attempts.get(attempt_id)
+
+    def get_attempts_for_task(self, task_id: str) -> tuple[Attempt, ...]:
+        return tuple(attempt for attempt in self._read().attempts.values() if str(attempt.task_id) == task_id)
 
     def get_operation_by_idempotency_key(self, idempotency_key: str) -> Operation | None:
         state = self._read()
@@ -143,6 +149,13 @@ class InMemoryUnitOfWork:
 
     def get_artifact_by_operation_id(self, operation_id: str) -> ArtifactRegistration | None:
         return self._read().artifacts_by_operation.get(operation_id)
+
+    def get_artifacts_for_attempt(self, attempt_id: str) -> tuple[ArtifactRegistration, ...]:
+        return tuple(
+            artifact
+            for artifact in self._read().artifacts_by_operation.values()
+            if str(artifact.attempt_id) == attempt_id
+        )
 
     def get_metric_by_attempt_id(self, attempt_id: str) -> MetricRecord | None:
         return self._read().metrics_by_attempt.get(attempt_id)

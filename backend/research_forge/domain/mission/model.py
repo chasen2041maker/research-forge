@@ -30,6 +30,7 @@ class MissionStatus(StrEnum):
 
 class TaskType(StrEnum):
     BASELINE_REPRODUCTION = "BASELINE_REPRODUCTION"
+    REPAIR_CANDIDATE = "REPAIR_CANDIDATE"
 
 
 class TaskStatus(StrEnum):

@@ -2,6 +2,7 @@
 
 from research_forge.application.ports.artifacts import ArtifactStore
 from research_forge.application.ports.bundle import BundleBuilder
+from research_forge.application.ports.decision import DecisionEngine
 from research_forge.application.ports.sandbox import SandboxExecutor
 from research_forge.application.ports.queue import TaskQueue
 from research_forge.application.ports.reproduction_prerequisites import ReproductionPrerequisiteVerifier
@@ -13,6 +14,7 @@ __all__ = [
     "ArtifactStore",
     "BaselineWorkspace",
     "CandidateWorkspace",
+    "DecisionEngine",
     "BundleBuilder",
     "Clock",
     "IdGenerator",

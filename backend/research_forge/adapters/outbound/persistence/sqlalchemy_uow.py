@@ -160,6 +160,12 @@ class SqlAlchemyUnitOfWork:
         self._tasks[task_id] = task
         return task
 
+    def get_tasks_for_mission(self, mission_id: str) -> tuple[Task, ...]:
+        task_ids = self._require_session().scalars(
+            select(TaskRow.task_id).where(TaskRow.mission_id == mission_id).order_by(TaskRow.created_at)
+        )
+        return tuple(task for task_id in task_ids if (task := self.get_task(task_id)) is not None)
+
     def get_attempt(self, attempt_id: str) -> Attempt | None:
         if attempt_id in self._attempts:
             return self._attempts[attempt_id]
@@ -182,6 +188,12 @@ class SqlAlchemyUnitOfWork:
         self._attempts[attempt_id] = attempt
         self._attempt_versions[attempt_id] = row.version
         return attempt
+
+    def get_attempts_for_task(self, task_id: str) -> tuple[Attempt, ...]:
+        attempt_ids = self._require_session().scalars(
+            select(AttemptRow.attempt_id).where(AttemptRow.task_id == task_id).order_by(AttemptRow.attempt_number)
+        )
+        return tuple(attempt for attempt_id in attempt_ids if (attempt := self.get_attempt(attempt_id)) is not None)
 
     def get_operation_by_idempotency_key(self, idempotency_key: str) -> Operation | None:
         row = self._require_session().scalar(
@@ -206,6 +218,14 @@ class SqlAlchemyUnitOfWork:
         registration = self._artifact_from_row(row)
         self._artifacts[operation_id] = registration
         return registration
+
+    def get_artifacts_for_attempt(self, attempt_id: str) -> tuple[ArtifactRegistration, ...]:
+        rows = self._require_session().scalars(
+            select(ArtifactRow).where(ArtifactRow.attempt_id == attempt_id).order_by(ArtifactRow.created_at)
+        )
+        artifacts = tuple(self._artifact_from_row(row) for row in rows)
+        self._artifacts.update({artifact.operation_id: artifact for artifact in artifacts})
+        return artifacts
 
     def get_metric_by_attempt_id(self, attempt_id: str) -> MetricRecord | None:
         cached = self._metrics.get(attempt_id)

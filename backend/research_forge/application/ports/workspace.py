@@ -41,4 +41,12 @@ class WorkspaceManager(Protocol):
         expected_parent_commit_sha: str,
     ) -> CandidateWorkspace: ...
 
+    def recover_candidate(
+        self,
+        *,
+        mission_id: str,
+        operation_id: str,
+        expected_parent_commit_sha: str,
+    ) -> CandidateWorkspace: ...
+
     def commit_candidate(self, request: CandidateCommitRequest) -> CandidateCommit: ...

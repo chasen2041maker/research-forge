@@ -122,6 +122,36 @@ class GitWorktreeManager:
             parent_commit_sha=parent_sha,
         )
 
+    def recover_candidate(
+        self,
+        *,
+        mission_id: str,
+        operation_id: str,
+        expected_parent_commit_sha: str,
+    ) -> CandidateWorkspace:
+        mission_root = self._mission_root(mission_id)
+        mirror = mission_root / "repo.git"
+        worktree = mission_root / "worktrees" / "candidate"
+        if not worktree.exists():
+            return self.ensure_candidate(
+                mission_id=mission_id,
+                expected_parent_commit_sha=expected_parent_commit_sha,
+            )
+        if mirror.is_symlink() or not mirror.is_dir() or worktree.is_symlink() or not worktree.is_dir():
+            raise PathSafetyViolation("Candidate recovery path is missing or unsafe.")
+        if self._run("-C", str(worktree), "status", "--porcelain").stdout:
+            raise WorkspaceError("Candidate recovery requires a clean registered worktree.")
+        head = self._run("-C", str(worktree), "rev-parse", "HEAD").stdout.strip()
+        if head != expected_parent_commit_sha:
+            parent = self._run("-C", str(worktree), "rev-parse", f"{head}^{{commit}}^").stdout.strip()
+            if parent != expected_parent_commit_sha or not self._commit_has_operation_trailer(worktree, head, operation_id):
+                raise WorkspaceError("Candidate worktree cannot be safely recovered for this operation.")
+        return CandidateWorkspace(
+            root_path=str(mission_root),
+            worktree_path=str(worktree),
+            parent_commit_sha=expected_parent_commit_sha,
+        )
+
     def commit_candidate(self, request: CandidateCommitRequest) -> CandidateCommit:
         worktree, mirror = self._candidate_paths(request.worktree_path)
         existing = self._operation_commit(mirror, request.operation_id)
