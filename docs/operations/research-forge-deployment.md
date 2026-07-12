@@ -51,13 +51,13 @@ Before enabling service, verify that the image reference in policy resolves to t
 
 ## Install process roles
 
-Install the four supplied units, reload systemd, and enable the Docker broker before the worker:
+Install the five supplied units, reload systemd, and enable the Docker broker before the worker:
 
 ```bash
 sudo cp /opt/research-forge/deploy/research-forge/systemd/*.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now research-forge-api research-forge-publisher research-forge-sandbox-broker research-forge-worker
-sudo systemctl status research-forge-api research-forge-publisher research-forge-sandbox-broker research-forge-worker
+sudo systemctl enable --now research-forge-api research-forge-publisher research-forge-sandbox-broker research-forge-reconciler research-forge-worker
+sudo systemctl status research-forge-api research-forge-publisher research-forge-sandbox-broker research-forge-reconciler research-forge-worker
 ```
 
 Keep the API bound to `127.0.0.1:8080`. Put a TLS-terminating reverse proxy in front of it if remote reviewers need the Forge console. Proxy only the API endpoint, configure `RF_CORS_ORIGINS` to the exact console origin, and never expose PostgreSQL, Redis, or the Docker socket.
@@ -72,14 +72,14 @@ sudo -u research-forge -H bash -lc '
   /opt/research-forge/.venv/bin/python -m research_forge.bootstrap.runtime healthcheck
 '
 docker compose -f /opt/research-forge/deploy/research-forge/compose.dependencies.yml ps
-journalctl -u research-forge-worker -u research-forge-publisher -u research-forge-sandbox-broker --since "15 minutes ago"
+journalctl -u research-forge-worker -u research-forge-publisher -u research-forge-reconciler -u research-forge-sandbox-broker --since "15 minutes ago"
 ```
 
-The runtime healthcheck verifies PostgreSQL, Redis, and the broker Unix socket. Queue messages are only Attempt IDs. PostgreSQL remains the source of truth; the worker acknowledges a Redis message only after the complete Mission path has durably finished. During a sandbox run the worker renews its owned Attempt lease every 10 seconds and stops that monitor before finalization, so the persisted optimistic version cannot race the evidence write. A repeated delivery after a crash is expected and is protected by broker-side completed-result recovery, operation idempotency, and CAS hashes.
+The runtime healthcheck verifies PostgreSQL, Redis, and the broker Unix socket. Queue messages are only Attempt IDs. PostgreSQL remains the source of truth; the worker acknowledges a Redis message only after the complete Mission path has durably finished. The reconciler scans stale `PREPARED` and `EXECUTING` Operations every 30 seconds and atomically emits one Outbox redelivery for the original Attempt; recovery reuses its original idempotency key. During a sandbox run the worker renews its owned Attempt lease every 10 seconds and stops that monitor before finalization, so the persisted optimistic version cannot race the evidence write. A repeated delivery after a crash is expected and is protected by broker-side completed-result recovery, operation idempotency, and CAS hashes.
 
 ## Recovery, backup, and rollout
 
-- **Publisher or worker restart:** restart the unit. Unpublished Outbox events remain in PostgreSQL, and unacknowledged Redis deliveries remain available for retry.
+- **Publisher, reconciler, or worker restart:** restart the unit. Unpublished Outbox events remain in PostgreSQL, stale ledger operations are requeued by the reconciler, and unacknowledged Redis deliveries remain available for retry.
 - **Cancellation or failed sandbox execution:** a cancellation request is durable first; the worker observes it, sends the bounded cancel operation to the broker, records `CANCELLED`, and then acknowledges the Attempt delivery without registering later artifacts. Inspect the Mission evidence and worker journal. Do not hand-edit worktrees, CAS bytes, operations, or approval records; cancel the Mission or create a new frozen Mission instead. Bundle replay rejects traversal, links, non-file members, excess member count, oversized members, excess extraction size, and compression-ratio bombs.
 - **Unexpected repair Attempt:** the shipped production worker fails closed and leaves it unacknowledged because no LLM DecisionEngine is configured. Stop the worker, investigate the durable approval and policy, and deploy a separately reviewed repair worker before retrying. Do not point the production service at the test-only fixed-patch adapter.
 - **Database backup:** use a consistent `pg_dump` from the Postgres container, then separately snapshot the CAS and workspace roots. A database-only restore cannot reproduce artifact bytes.
