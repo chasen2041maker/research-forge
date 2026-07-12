@@ -23,6 +23,7 @@ class _State:
     metrics_by_attempt: dict[str, MetricRecord] = field(default_factory=dict)
     claims: dict[str, Claim] = field(default_factory=dict)
     evidence_by_claim: dict[str, list[EvidenceLink]] = field(default_factory=dict)
+    bundles_by_mission: dict[str, ArtifactRegistration] = field(default_factory=dict)
     audits: list[AuditEvent] = field(default_factory=list)
     outbox: list[OutboxEvent] = field(default_factory=list)
 
@@ -49,6 +50,10 @@ class InMemoryUnitOfWork:
     @property
     def metrics(self) -> tuple[MetricRecord, ...]:
         return tuple(self._state.metrics_by_attempt.values())
+
+    @property
+    def bundles(self) -> tuple[ArtifactRegistration, ...]:
+        return tuple(self._state.bundles_by_mission.values())
 
     def __enter__(self) -> Self:
         if self._working is not None:
@@ -115,6 +120,13 @@ class InMemoryUnitOfWork:
         if link not in links:
             links.append(link)
 
+    def add_bundle(self, mission_id: str, artifact: ArtifactRegistration) -> None:
+        state = self._write()
+        existing = state.bundles_by_mission.get(mission_id)
+        if existing is not None and existing != artifact:
+            raise ValueError(f"Conflicting bundle registration for mission {mission_id}")
+        state.bundles_by_mission[mission_id] = artifact
+
     def get_mission(self, mission_id: str) -> Mission | None:
         return self._read().missions.get(mission_id)
 
@@ -140,6 +152,9 @@ class InMemoryUnitOfWork:
 
     def get_evidence_for_claim(self, claim_id: str) -> tuple[EvidenceLink, ...]:
         return tuple(self._read().evidence_by_claim.get(claim_id, []))
+
+    def get_bundle(self, mission_id: str) -> ArtifactRegistration | None:
+        return self._read().bundles_by_mission.get(mission_id)
 
     def commit(self) -> None:
         if self._working is None:

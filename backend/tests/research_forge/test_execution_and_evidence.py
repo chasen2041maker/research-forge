@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from io import BytesIO
 from pathlib import Path
 from subprocess import run
+from zipfile import ZipFile
 
 import pytest
 
@@ -13,9 +15,11 @@ from research_forge.adapters.outbound.artifacts import LocalContentAddressedStor
 from research_forge.adapters.outbound.git import GitWorktreeManager
 from research_forge.adapters.outbound.persistence import InMemoryUnitOfWork
 from research_forge.adapters.outbound.sandbox import DeterministicFakeSandbox
+from research_forge.adapters.outbound.bundle import DeterministicZipBundleBuilder
 from research_forge.application.dto import JsonSchemaReproductionSpecValidator, SandboxResult, SandboxRunRequest
 from research_forge.application.use_cases import (
     ClaimBaselineAttempt,
+    CompleteReproductionMission,
     CreateReproductionMission,
     EnsureBaselineWorkspace,
     FinalizeBaselineExecution,
@@ -124,9 +128,10 @@ def test_no_llm_baseline_flow_creates_verified_metric_evidence(tmp_path: Path) -
     lease = ClaimBaselineAttempt(unit_of_work=uow, clock=clock, lease_duration=timedelta(seconds=30)).execute(
         attempt_id=mission.attempt_id, owner="worker-a"
     )
+    workspace_manager = GitWorktreeManager(tmp_path / "workspaces")
     workspace = EnsureBaselineWorkspace(
         unit_of_work=uow,
-        workspace_manager=GitWorktreeManager(tmp_path / "workspaces"),
+        workspace_manager=workspace_manager,
         clock=clock,
         id_generator=ids,
     ).execute(
@@ -162,9 +167,10 @@ def test_no_llm_baseline_flow_creates_verified_metric_evidence(tmp_path: Path) -
         idempotency_key=f"{mission.attempt_id}:sandbox",
         worktree_path=workspace.worktree_path,
     )
+    cas = LocalContentAddressedStore(tmp_path / "cas")
     persister = PersistArtifact(
         unit_of_work=uow,
-        artifact_store=LocalContentAddressedStore(tmp_path / "cas"),
+        artifact_store=cas,
         clock=clock,
         id_generator=ids,
     )
@@ -181,13 +187,39 @@ def test_no_llm_baseline_flow_creates_verified_metric_evidence(tmp_path: Path) -
         sandbox_result=result.sandbox_result,
         commit_sha=workspace.commit_sha,
     )
+    bundle = CompleteReproductionMission(
+        unit_of_work=uow,
+        artifact_store=cas,
+        artifact_persister=persister,
+        workspace_manager=workspace_manager,
+        bundle_builder=DeterministicZipBundleBuilder(),
+        clock=clock,
+        id_generator=ids,
+    ).execute(
+        attempt_id=mission.attempt_id,
+        owner=lease.owner,
+        epoch=lease.epoch,
+        expected_version=lease.version,
+        worktree_path=workspace.worktree_path,
+    )
 
     persisted_mission = uow.get_mission(mission.mission_id)
     persisted_attempt = uow.get_attempt(mission.attempt_id)
     claims = uow.get_claims_for_mission(mission.mission_id)
     assert finalized.metric_value == 0.8
-    assert persisted_mission is not None and persisted_mission.status is MissionStatus.VERIFYING
-    assert persisted_attempt is not None and persisted_attempt.status is AttemptStatus.RUNNING
+    assert persisted_mission is not None and persisted_mission.status is MissionStatus.COMPLETED
+    assert persisted_attempt is not None and persisted_attempt.status is AttemptStatus.SUCCEEDED
     assert len(uow.metrics) == 1
     assert len(claims) == 1
     assert len(uow.get_evidence_for_claim(claims[0].claim_id)) == 2
+    persisted_bundle = uow.get_bundle(mission.mission_id)
+    assert persisted_bundle is not None and persisted_bundle.artifact.sha256 == bundle.sha256
+    with ZipFile(BytesIO(cas.read_verified(persisted_bundle.artifact))) as archive:
+        assert {
+            "bundle-manifest.json",
+            "claims.jsonl",
+            "evidence.jsonl",
+            "reproduce.sh",
+            "source.tar",
+            "artifacts/metrics.json",
+        }.issubset(archive.namelist())

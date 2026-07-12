@@ -71,6 +71,24 @@ class GitWorktreeManager:
             raise PathSafetyViolation("Workspace path escapes the configured root.") from exc
         return root
 
+    def archive_baseline(self, worktree_path: str) -> bytes:
+        worktree = Path(worktree_path).resolve()
+        try:
+            worktree.relative_to(self._workspace_root)
+        except ValueError as exc:
+            raise PathSafetyViolation("Baseline archive path escapes the workspace root.") from exc
+        if worktree.is_symlink() or not worktree.is_dir():
+            raise PathSafetyViolation("Baseline archive worktree is missing or unsafe.")
+        try:
+            return run(
+                [self._git_binary, "-C", str(worktree), "archive", "--format=tar", "HEAD"],
+                check=True,
+                capture_output=True,
+                shell=False,
+            ).stdout
+        except CalledProcessError as exc:
+            raise WorkspaceError("Unable to archive the pinned baseline worktree.") from exc
+
     def _run(self, *arguments: str) -> CompletedProcess[str]:
         command = [self._git_binary, *arguments]
         try:

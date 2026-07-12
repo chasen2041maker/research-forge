@@ -27,13 +27,19 @@ from research_forge.application.use_cases.finalize_baseline_execution import (
     FinalizeBaselineExecution,
     FinalizedBaselineView,
 )
+from research_forge.application.use_cases.complete_reproduction_mission import (
+    BundleView,
+    CompleteReproductionMission,
+)
 
 __all__ = [
     "AttemptNotFound",
     "ArtifactView",
     "BaselineExecutionView",
     "BaselineValidationFailure",
+    "BundleView",
     "ClaimBaselineAttempt",
+    "CompleteReproductionMission",
     "CreateReproductionMission",
     "EnsureBaselineWorkspace",
     "FinalizeBaselineExecution",
