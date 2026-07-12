@@ -1,240 +1,221 @@
-<p align="center">
-  <strong>RESEARCH FORGE</strong><br />
-  Evidence-gated research reproduction for pinned experiments.
-</p>
+# Research Forge：把研究想法变成可复现实验
 
-<p align="center">
-  <a href="README.zh-CN.md">中文说明</a>
-</p>
+> **Studio 负责探索，Forge 负责验证。**
+>
+> 这个项目不是“让 AI 自动宣布科研成功”，而是把论文、代码版本、运行命令和指标固定下来，产出可审计、可重放的实验结论。
+
+[English summary](#english-summary) · [产品流程](docs/product/studio-forge-workflow.md) · [部署手册](docs/operations/deployment.md) · [架构决策](docs/adr/README.md)
 
 <p align="center">
   <a href="https://github.com/chasen2041maker/research-forge/actions/workflows/research-forge.yml"><img src="https://github.com/chasen2041maker/research-forge/actions/workflows/research-forge.yml/badge.svg" alt="Research Forge gates" /></a>
-  <img src="https://img.shields.io/badge/execution-offline%20by%20default-22c55e" alt="Offline by default" />
-  <img src="https://img.shields.io/badge/evidence-deterministic-06b6d4" alt="Deterministic evidence" />
-  <img src="https://img.shields.io/badge/runtime-Python%203.11%2B-6366f1" alt="Python 3.11+" />
+  <img src="https://img.shields.io/badge/运行-Linux%20%2F%20WSL2%20正式环境-2563eb" alt="Linux or WSL2" />
+  <img src="https://img.shields.io/badge/沙箱-默认离线-16a34a" alt="Offline sandbox" />
+  <img src="https://img.shields.io/badge/结果-证据门控-0891b2" alt="Evidence gated" />
 </p>
 
-> Turn a paper, pinned repository, immutable execution specification, and fixed metric into an auditable experiment and a replayable bundle.
+## 先用一句话理解
 
-Research Forge is a product for turning research directions into reproducible claims. It does not accept a result merely because a worker says it passed: the result must be tied to a pinned commit, an operation ledger, content-addressed artifacts, a deterministic metric, evidence links, and a reproducible Bundle.
+给 Forge 一份**冻结的实验规格**：论文文件、Git commit、Docker 镜像 digest、运行命令、指标和预算。Forge 只有在以下内容全部对得上时，才会输出 `VERIFIED`：
 
-**Status:** the VS-001 baseline slice, bounded repair workflow, durable approval flow, Studio → Forge JSON handoff, minimal local API/UI, SQLAlchemy persistence adapter, Alembic revisions, Linux Docker gate, and host-process production composition/runbook are implemented and covered by CI. The legacy AI Co-Scientist demo remains isolated under [`backend/co_scientist`](backend/co_scientist).
+- 代码确实来自指定 commit；
+- 容器按离线、安全限制运行；
+- 指标来自指定的产物路径和 JSON 指针；
+- 指标满足冻结的判断条件；
+- 产物、日志、证据链和 Bundle 均已登记并校验。
 
-## One product, two honest modes
+## 我应该从哪里开始？
 
-| Mode | Responsibility | Output status |
+| 你的目标 | 从这里开始 | 得到什么 |
 | --- | --- | --- |
-| [Research Studio](frontend/src/app/studio/page.tsx) | Explore a question, literature, gaps, critiques, experiment plans, and code suggestions. | `UNVERIFIED` `ResearchProposal v1` |
-| [Forge Runtime](frontend/src/app/forge/page.tsx) | Freeze a spec, validate pins and budgets, execute, extract metrics, close evidence, and seal a Bundle. | `VERIFIED` `VerifiedResult v1` only after normal closure |
-| Full research loop | Let a user explicitly complete Studio's missing hashes, commit, image, command, metric, and budgets before creating a normal Forge Mission. | Proposal stays unverified until Forge proves it |
+| 想研究一个问题、查文献、形成假设 | [Research Studio](frontend/src/app/studio/page.tsx) | `UNVERIFIED` 的 `ResearchProposal v1` |
+| 已经有论文、代码、commit 和评测命令 | [Forge Console](frontend/src/app/forge/page.tsx) | 一个可追踪的 Forge Mission |
+| 想验证整个产品链路 | [三条演示](docs/operations/product-demos.md) | 交接、验证回传、修复审批的 JSON 报告 |
+| 想在服务器部署 | [部署手册](docs/operations/deployment.md) | PostgreSQL、Redis、broker 和服务进程配置 |
 
-```text
-Research Studio                         Forge Runtime
-question -> papers -> plan      Proposal + human completion -> frozen ReproductionSpec
-            |                                |
-            +--- UNVERIFIED JSON ----------->| pinned Git -> sandbox -> metric -> evidence -> Bundle
+## 这两个系统如何连接？
+
+```mermaid
+flowchart LR
+    U[研究者] --> S[Research Studio<br/>探索、文献、假设]
+    S -->|ResearchProposal v1<br/>UNVERIFIED| H[人工确认
+论文 hash / commit / 镜像 / 命令 / 指标 / 预算]
+    H -->|POST /v1/proposals/handoff| F[Research Forge]
+
+    subgraph F[Research Forge：证据门控验证]
+        M[冻结 ReproductionSpec] --> P[前置校验
+论文 / Git / 镜像]
+        P --> W[Mission / Task / Attempt]
+        W --> B[离线 Sandbox Broker]
+        B --> E[指标、Claim、Evidence]
+        E --> Z[可重放 Bundle]
+    end
+
+    Z -->|GET /v1/missions/:id/verified-result| R[VerifiedResult v1<br/>只读事实]
+    R --> S
+
+    style S fill:#5b21b6,color:#fff
+    style F fill:#0e7490,color:#fff
+    style R fill:#047857,color:#fff
 ```
 
-Studio and Forge do not import each other's graph, state, workers, adapters, or persistence
-models. Their shared vocabulary lives in [`backend/research_contracts`](backend/research_contracts),
-and the one-way handoff lives in [`backend/research_gateway`](backend/research_gateway). See the
-[product architecture](docs/product/overview.md) for the boundary and API details.
+关键原则：**Studio 的建议不会自动变成执行参数；人必须确认每一个 pin 和预算。** Forge 完成证据闭环后，才会回传只读的 `VerifiedResult v1`。
 
-## Why Research Forge?
+## Forge 内部架构
 
-Research automation often breaks in quiet ways:
+```mermaid
+flowchart TB
+    API[FastAPI / Forge Console] --> APP[Application Use Cases]
+    WORKER[Baseline / Repair Worker] --> APP
 
-- a metric is reported without the exact commit that produced it;
-- a killed worker retries a side effect and writes conflicting state;
-- an artifact changes after a result has been accepted;
-- a candidate patch is committed without an attributable human approval;
-- a dashboard presents process-local state as if it were durable truth.
+    APP --> DOMAIN[Domain
+Mission · Attempt · Approval · Operation · Evidence]
+    APP --> UOW[Unit of Work]
+    APP --> QUEUE[Redis Streams]
+    APP --> GIT[Git Worktree]
+    APP --> CAS[Content-addressed Storage]
+    APP --> BROKER[Unix Socket Broker]
 
-Research Forge is deliberately narrow. It gives a reproduction Mission a deterministic proof path before it becomes complete.
+    UOW --> PG[(PostgreSQL
+业务真相)]
+    QUEUE --> REDIS[(Redis
+仅传输消息)]
+    BROKER --> DOCKER[Docker
+离线容器]
 
-```text
-Frozen ReproductionSpec
-        |
-        v
-Mission -> Task -> lease-owned Attempt -> Operation Ledger
-        |                                  |
-        |                                  v
-        +-> pinned Git worktree -> offline sandbox -> CAS artifacts
-                                                    |
-                                                    v
-                                  metric -> claim -> evidence -> Bundle
+    style PG fill:#1d4ed8,color:#fff
+    style REDIS fill:#b91c1c,color:#fff
+    style DOCKER fill:#0e7490,color:#fff
 ```
 
-## What works today
+### 哪些组件负责什么？
 
-- `ReproductionSpec v1` JSON-schema validation, cross-field rules, prerequisite checks, and immutable normalized specs.
-- Durable Mission / Task / Attempt state, optimistic versions, lease epochs, heartbeats, cancellation, Audit events, and Outbox events. A running sandbox Attempt renews its lease every 10 seconds; its monitor stops before finalization so the final optimistic version is fixed.
-- Git baseline and bounded candidate worktrees with idempotent operation records and strict patch budgets.
-- Content-addressed artifacts with SHA-256 verification and safe deterministic Bundle replay extraction; each Bundle preserves original and normalized Specs plus a structured evaluation report bound to the Spec hash.
-- Offline Docker execution on Linux with no network, read-only root filesystem, dropped capabilities, non-root user, and a broker boundary.
-- Deterministic metric extraction, verified claims, and evidence closure.
-- One bounded repair flow: proposal -> persisted approval -> fresh child Attempt -> candidate commit -> candidate run -> evidence-gated Bundle.
-- FastAPI local-token surface for Mission status, cancellation, Bundle download, approval decisions, and `POST /v1/proposals/handoff`; the Next.js Forge console reads that state without owning it.
-- A versioned JSON-only bridge: a completed Studio run can be exported at `GET /api/research/{fork_id}/proposal`, then a user-confirmed completion form is compiled into Forge's unchanged `ReproductionSpec v1` Mission boundary.
-- SQLAlchemy source-of-truth adapter, static Alembic revisions, CI migration upgrade/downgrade verification, and a real PostgreSQL service gate.
-- A frozen 16-case release manifest with the baseline end-to-end proof repeated 10 times, repeated recovery cases, append-only JSON reports, and a retained GitHub Actions artifact.
-- Structured JSON host-process logs with bounded correlation fields and credential redaction; durable Audit/Outbox records remain the business evidence source.
+| 组件 | 职责 | 不负责什么 |
+| --- | --- | --- |
+| PostgreSQL | Mission、审批、租约、操作账本和证据的业务真相 | 运行容器、保存大文件字节 |
+| Redis Streams | baseline/repair 两条队列、确认、超时接管、死信队列 | 决定 Mission 是否成功 |
+| CAS | 以 SHA-256 保存日志、指标、补丁和 Bundle | 修改已保存的产物 |
+| Docker broker | 唯一能调用 Docker 的进程 | 业务决策、数据库写入 |
+| DecisionEngine | 基于已验证日志、路径和预算提出一个 diff | Git、Docker、数据库、Redis、CAS 或密钥访问 |
 
-## 10-second proof
+## 三条核心流程
 
-From the repository root:
+### 1. 基线复现
+
+```text
+冻结 Spec → 校验论文/Git/镜像 → 创建 Mission → 离线运行
+→ 提取指标 → 生成 Evidence → 封存 Bundle → VERIFIED
+```
+
+### 2. Studio → Forge 交接
+
+```text
+Studio Proposal（未验证）
+        ↓
+人工补齐并确认所有执行字段
+        ↓
+Forge 复用普通 Mission 创建流程
+        ↓
+完成后才能读取 VerifiedResult
+```
+
+### 3. 受限修复
+
+```text
+基线失败 → DecisionEngine 生成一个 unified diff
+→ diff 写入 CAS → 人工审批该精确字节 hash
+→ 新 Attempt 读取已批准 diff → 一次候选提交、一次候选运行
+→ 指标与证据闭环
+```
+
+审批后不会重新让模型生成补丁；候选执行只读取审批绑定的 CAS 补丁字节。
+
+## 5 分钟本地验证
+
+### 1. 安装后端依赖并跑测试
 
 ```powershell
 python -m pip install -r deploy/research-forge/requirements.txt httpx mypy pytest ruff
-python -m pytest backend/tests/research_forge backend/tests/research_integration -q
-python -m ruff check backend/research_forge backend/research_contracts backend/research_gateway backend/co_scientist/public_api backend/tests/research_forge backend/tests/research_integration
-python backend/scripts/run_frozen_research_forge_eval.py
+python -m pytest backend/tests/research_forge backend/tests/research_integration -q -m "not docker"
+python -m mypy backend/research_forge backend/research_contracts backend/research_gateway backend/co_scientist/public_api --follow-imports=skip --ignore-missing-imports --check-untyped-defs --warn-unused-ignores
 ```
 
-Build the Forge console:
+### 2. 跑三条产品演示
+
+```powershell
+python backend/scripts/run_research_forge_demos.py --output-dir artifacts/demo-reports
+```
+
+输出 JSON 会记录三条演示是否成功：Studio 交接、VerifiedResult 回传、修复审批闭环。
+
+### 3. 检查前端类型
 
 ```powershell
 cd frontend
 npm install
-npm run build
+npm exec -- tsc --noEmit
 ```
 
-The GitHub Actions workflow runs mypy, secret scanning, the non-Docker suite, architecture checks, Alembic upgrade/downgrade contract, a separate Linux Docker end-to-end gate, dependency vulnerability and license reports, and the 16-case frozen evaluation manifest on every push to `main`. The custom AST checks enforce the inbound/outbound/decision boundary, platform SDK ownership, public-signature shape, and an acyclic internal import graph. The evaluation job retains a JSON artifact containing all Case outcomes and the Manifest SHA-256.
+完整 Linux Docker 验证和正式部署请看 [部署手册](docs/operations/deployment.md)。Windows 原生适合开发和 UI；正式沙箱验收环境是 Linux/WSL2。
 
-## Studio → Forge handoff
+## 已实现与暂不承诺
 
-1. Finish an exploration in Studio, then request `GET /api/research/{fork_id}/proposal`.
-2. Treat the returned `ResearchProposal v1` as a suggestion: it is structurally marked `UNVERIFIED`.
-3. In the Forge console's **Studio → Forge handoff** panel, paste the Proposal and explicitly fill
-   the paper artifact hash, repository commit, image digest, setup/run arguments, metric, change
-   budget, and runtime budgets.
-4. Forge calls the normal frozen-spec Mission creation path. It still rejects invalid JSON Schema,
-   unavailable pins, disallowed images, and unsatisfied prerequisite checks.
+| 已实现 | 暂不承诺 |
+| --- | --- |
+| 版本化 Spec、Studio Proposal、VerifiedResult 合同 | 通用远程 Git URL 自动拉取 |
+| PostgreSQL 业务真相、乐观锁、租约和取消 | 生产环境已配置的 LLM 提供商 |
+| Redis Streams、超时接管、死信队列 | 多候选自动搜索或自动发 PR |
+| broker 重启后的已完成结果恢复 | 外部论文基准上的统计学结论 |
+| 补丁 CAS 持久化与 hash 审批绑定 | Windows 原生正式 Docker 安全验收 |
+| Bundle、指标、证据和 VerifiedResult 回传 | 让 Studio 自动替用户确认执行参数 |
 
-The handoff never copies a Studio suggestion into an execution field automatically. After normal
-evidence closure, a handoff Mission exposes read-only `VerifiedResult v1` facts; this does not
-change the evidence gate or make unverified output look verified.
+## 常用接口
 
-## Product demos
+| 接口 | 用途 |
+| --- | --- |
+| `GET /api/research/{fork_id}/proposal` | Studio 导出未验证 Proposal |
+| `POST /v1/proposals/handoff` | 提交 Proposal 和人工确认的执行字段 |
+| `GET /v1/missions/{mission_id}` | 读取 Mission、Task、Attempt 和审批状态 |
+| `POST /v1/approvals/{approval_id}/decide` | 批准或拒绝高风险修复补丁 |
+| `GET /v1/missions/{mission_id}/bundle` | 下载可重放 Bundle |
+| `GET /v1/missions/{mission_id}/verified-result` | 读取已完成 handoff Mission 的 VerifiedResult |
 
-Run the three deterministic handoff, verified-result, and bounded-repair demonstrations with:
+除 Studio 的本地导出接口外，Forge API 使用本地 Bearer Token；接口细节见 [产品流程](docs/product/studio-forge-workflow.md)。
 
-```bash
-python backend/scripts/run_research_forge_demos.py --output-dir artifacts/demo-reports
-```
-
-See [product-demos.md](docs/operations/product-demos.md) for the exact evidence each demo covers.
-
-## Core concepts
-
-| Concept | What it means | Why it matters |
-| --- | --- | --- |
-| `Mission` | Immutable normalized reproduction specification and top-level lifecycle. | Gives every result a stable identity. |
-| `Task` / `Attempt` | Work unit and a specific lease-owned execution. | Old workers cannot finalize newer work. |
-| `Operation` | Idempotency record around a cross-store effect. | Recovery does not duplicate Git, CAS, or sandbox effects. |
-| CAS artifact | SHA-256-addressed execution log, metric, source archive, or Bundle. | Artifact tampering is detectable. |
-| Claim + Evidence | A metric statement linked to the artifacts that support it. | The UI does not display unsupported results as facts. |
-| Approval | Durable decision for one high-risk repair patch hash. | Workers exit instead of blocking; a changed patch cannot reuse approval. |
-| Bundle | Deterministic replay deliverable. | A completed Mission can be independently checked. |
-
-## Quick architecture
+## 项目目录
 
 ```text
-Inbound API / Worker
-        |
-        v
-Application use cases
-        |
-        +--> Domain: Mission, Attempt, Approval, Operation, Evidence
-        |
-        +--> Ports: UoW, Git, Sandbox, CAS, Decision Engine
-                    |
-                    v
-          PostgreSQL / Git / Docker broker / local CAS
+backend/
+  co_scientist/          Research Studio（探索）
+  research_contracts/    两个产品共享的 JSON 合同
+  research_gateway/      Studio → Forge 编译与边界
+  research_forge/        Forge 领域、用例、适配器和启动配置
+  scripts/               演示与冻结评估脚本
+frontend/src/app/
+  studio/                Studio 页面
+  forge/                 Forge 控制台
+docs/
+  product/               产品流程
+  architecture/          架构与实现状态
+  operations/            部署、恢复、演示
+  contracts/             ReproductionSpec / Proposal / VerifiedResult
 ```
 
-The architecture is application-centric by design:
+## 深入阅读
 
-- FastAPI routes and workers call use cases only; they do not access ORM, Git, Docker, or the Decision Engine's side-effect capabilities directly.
-- PostgreSQL is the business source of truth; Git owns code state; CAS owns artifact bytes.
-- A `DecisionEngine` returns an untrusted `ActionProposal` only. Application policy validates its path budget, approval, patch hash, and operation ledger before Git can commit.
-- Windows native is a UI/development environment. Formal container-security acceptance is Linux/WSL2 only.
-
-## Repair flow
-
-```text
-Baseline validation fails in repair mode
-        |
-        v
-Repair worker reads verified baseline log
-        |
-        v
-DecisionEngine proposes exactly one patch
-        |
-        v
-Approval persists patch SHA-256; worker exits
-        |
-        v
-Reviewer approves -> child Attempt + Outbox event
-        |
-        v
-Repair worker verifies matching patch, commits once, runs once, validates metric
-```
-
-The included adapter for tests is deterministic (`FixedPatchDecisionEngine`). No LLM repair runtime is represented as shipped; an LLM-based decision adapter must satisfy the same narrow `DecisionEngine` port and cannot receive Git, Docker, CAS, Queue, or database capabilities.
-
-## Forge console
-
-The Next.js UI at [`frontend/src/app/forge`](frontend/src/app/forge) is a local control plane rather than a second source of truth. It provides:
-
-1. Mission creation from a frozen spec and local API token.
-2. Durable Task / Attempt timeline with lease epochs and failure status.
-3. Explicit high-risk patch approvals with reviewer identity.
-4. Verified Bundle download only after evidence closure.
-
-The local API defaults to loopback and requires a Bearer token. CORS is restricted to configured local origins.
-
-## Security boundaries
-
-- Formal run stages use `--network none`; no run-stage network is allowed.
-- The Docker broker runs as a separate Unix-socket service and is the only process that invokes Docker. API, Outbox publisher, and worker roles do not receive the Docker socket; the worker can send only typed offline requests to the broker.
-- Candidate commits are limited by allowed paths, file count, changed lines, one commit, and one run.
-- Archive extraction rejects traversal, absolute paths, links, and unexpected members.
-- The approval record binds scope, task, parent Attempt, decision identity, expiry, and the exact patch hash.
-- Cancel, lease loss, stale epoch, and stale optimistic version are durable state transitions, not UI flags; a running cancellation stops the broker operation before the worker acknowledges its queue delivery.
-
-## Project map
-
-```text
-backend/research_forge/
-  domain/                 Mission, approval, operation, artifact, evidence rules
-  application/            use cases, DTOs, and ports
-  adapters/inbound/       FastAPI and lease-owned workers
-  adapters/outbound/      SQLAlchemy, Git, CAS, sandbox, system adapters
-  bootstrap/              explicit composition roots
-frontend/src/app/forge/   local evidence-gated console
-docs/                     specification, ADRs, architecture, and review material
-```
-
-## Roadmap and boundaries
-
-Implemented core work is intentionally focused on reproducibility and recoverability. Planned work should build on these invariants rather than bypass them:
-
-- A narrowly-capable LLM `DecisionEngine` adapter, only after its policy and supply-chain gates are in place.
-- Documentation and demo fixtures for a clean-machine local run.
-
-Research Forge does **not** currently claim browser automation, MCP, Skills, multi-candidate search, autonomous PR creation, or general scientific writing as v0.1 features.
-
-## Further reading
-
+- [产品总览](docs/product/overview.md)
 - [ReproductionSpec v1](docs/contracts/reproduction-spec-v1.md)
-- [Historical VS-001 implementation plan](docs/history/implementation-plans/vs-001.md)
-- [System overview](docs/architecture/system-overview.md)
-- [Layering and governance rules](docs/architecture/core-governance.md)
-- [Architecture decisions](docs/adr/README.md)
-- [Production deployment and recovery runbook](docs/operations/deployment.md)
-- [Research Studio notes](docs/studio/overview.md)
+- [VerifiedResult v1](docs/contracts/verified-result-v1.md)
+- [实现状态矩阵](docs/architecture/implementation-status.yaml)
+- [部署与恢复](docs/operations/deployment.md)
+- [三条产品演示](docs/operations/product-demos.md)
+
+## English summary
+
+Research Forge turns a fully pinned experiment (paper artifact, Git commit, image digest, command,
+metric, and budgets) into evidence-gated, replayable results. Research Studio explores and emits
+an `UNVERIFIED` proposal; a human confirms all execution facts before Forge runs it. Forge returns
+`VerifiedResult v1` only after its Mission, metric, claims, evidence, and Bundle have all closed.
 
 ## License
 
-Licensed under the [Apache License 2.0](LICENSE).
+[Apache License 2.0](LICENSE)
