@@ -27,7 +27,7 @@ from research_forge.adapters.outbound.bundle import DeterministicZipBundleBuilde
 from research_forge.adapters.outbound.git import GitWorktreeManager, PinnedLocalPrerequisiteVerifier
 from research_forge.adapters.outbound.persistence import SqlAlchemyUnitOfWork
 from research_forge.adapters.outbound.queue import RedisTaskQueue
-from research_forge.adapters.outbound.sandbox import DockerSandboxBroker
+from research_forge.adapters.outbound.sandbox import UnixSandboxBrokerClient
 from research_forge.adapters.outbound.system import SystemClock, UuidGenerator
 from research_forge.application.dto import JsonSchemaReproductionSpecValidator
 from research_forge.application.use_cases import (
@@ -66,6 +66,7 @@ class ProductionVs001Settings:
     schema: Mapping[str, Any]
     workspace_root: Path
     artifact_root: Path
+    broker_socket_path: Path
     paper_artifacts: Mapping[str, str]
     allowed_images: Mapping[str, str]
     cors_origins: tuple[str, ...]
@@ -99,6 +100,9 @@ class ProductionVs001Settings:
             schema=schema,
             workspace_root=Path(_required(values, "RF_WORKSPACE_ROOT")).resolve(),
             artifact_root=Path(_required(values, "RF_ARTIFACT_ROOT")).resolve(),
+            broker_socket_path=Path(
+                values.get("RF_BROKER_SOCKET_PATH", "/var/lib/research-forge/broker/sandbox.sock")
+            ).resolve(),
             paper_artifacts=paper_artifacts,
             allowed_images=allowed_images,
             cors_origins=cors_origins,
@@ -116,6 +120,7 @@ class ProductionVs001Runtime:
     unit_of_work: SqlAlchemyUnitOfWork
     database_engine: Engine
     redis_client: object
+    sandbox_client: UnixSandboxBrokerClient
 
     def publish_once(self) -> int:
         """Publish committed Outbox events and return the number of deliveries attempted."""
@@ -148,13 +153,15 @@ class ProductionVs001Runtime:
         self.queue.acknowledge(attempt_id)
         return True
 
-    def check_dependencies(self) -> None:
-        """Verify PostgreSQL and Redis connectivity for service supervision."""
+    def check_dependencies(self, *, check_broker: bool = False) -> None:
+        """Verify durable dependencies and, when requested, the separately supervised broker socket."""
         with self.database_engine.connect() as connection:
             connection.execute(text("SELECT 1"))
         ping = getattr(self.redis_client, "ping", None)
         if not callable(ping) or not bool(ping()):
             raise RuntimeError("Redis ping failed.")
+        if check_broker:
+            self.sandbox_client.get_completed("broker-healthcheck")
 
 
 def build_production_vs001_runtime(
@@ -203,6 +210,7 @@ def build_production_vs001_runtime(
             id_generator=identifiers,
         ),
     )
+    sandbox_client = UnixSandboxBrokerClient(socket_path=settings.broker_socket_path)
     baseline_worker = BaselineWorker(
         BaselineWorkerUseCases(
             get_outcome=GetBaselineOutcome(unit_of_work=unit_of_work),
@@ -219,10 +227,7 @@ def build_production_vs001_runtime(
             ),
             run=RunBaselineAttempt(
                 unit_of_work=unit_of_work,
-                sandbox_executor=DockerSandboxBroker(
-                    workspace_root=settings.workspace_root,
-                    allowed_images=settings.allowed_images,
-                ),
+                sandbox_executor=sandbox_client,
                 clock=clock,
                 id_generator=identifiers,
             ),
@@ -251,6 +256,7 @@ def build_production_vs001_runtime(
         unit_of_work=unit_of_work,
         database_engine=engine,
         redis_client=client,
+        sandbox_client=sandbox_client,
     )
 
 

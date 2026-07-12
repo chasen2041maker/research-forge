@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import platform
+from collections import OrderedDict
+from concurrent.futures import Future, TimeoutError as FutureTimeout
 from pathlib import Path
 from subprocess import PIPE, Popen, TimeoutExpired
+from threading import RLock
 from typing import Mapping
 
 from research_forge.application.dto.sandbox import NetworkPolicy, SandboxResult, SandboxRunRequest
@@ -27,6 +30,7 @@ class DockerSandboxBroker:
         memory_limit: str = "1g",
         cpu_limit: str = "1.0",
         pid_limit: int = 128,
+        max_completed_results: int = 64,
     ) -> None:
         self._workspace_root = workspace_root.resolve()
         self._allowed_images = dict(allowed_images)
@@ -34,7 +38,13 @@ class DockerSandboxBroker:
         self._memory_limit = memory_limit
         self._cpu_limit = cpu_limit
         self._pid_limit = pid_limit
+        if max_completed_results <= 0:
+            raise ValueError("Completed sandbox result capacity must be positive.")
+        self._max_completed_results = max_completed_results
         self._processes: dict[str, Popen[bytes]] = {}
+        self._completed: OrderedDict[str, SandboxResult] = OrderedDict()
+        self._inflight: dict[str, Future[SandboxResult]] = {}
+        self._process_lock = RLock()
 
     def execute(self, request: SandboxRunRequest) -> SandboxResult:
         if platform.system() != "Linux":
@@ -42,16 +52,41 @@ class DockerSandboxBroker:
         existing = self.get_completed(request.operation_id)
         if existing is not None:
             return existing
+        future, is_leader = self._claim_execution(request.operation_id)
+        if not is_leader:
+            return self._await_execution(future, request.timeout_seconds)
+        recovered = self.get_completed(request.operation_id)
+        if recovered is not None:
+            future.set_result(recovered)
+            with self._process_lock:
+                self._inflight.pop(request.operation_id, None)
+            return recovered
+        try:
+            result = self._run_container(request)
+        except Exception as exc:
+            future.set_exception(exc)
+            raise
+        else:
+            self._remember_completed(result)
+            future.set_result(result)
+            return result
+        finally:
+            with self._process_lock:
+                self._inflight.pop(request.operation_id, None)
+
+    def _run_container(self, request: SandboxRunRequest) -> SandboxResult:
         command = self.build_command(request)
         process = Popen(command, stdout=PIPE, stderr=PIPE, shell=False)
-        self._processes[request.operation_id] = process
+        with self._process_lock:
+            self._processes[request.operation_id] = process
         try:
             stdout, stderr = process.communicate(timeout=request.timeout_seconds)
         except TimeoutExpired as exc:
             self.cancel(request.operation_id)
             raise SandboxUnavailable("Sandbox execution exceeded its fixed timeout.") from exc
         finally:
-            self._processes.pop(request.operation_id, None)
+            with self._process_lock:
+                self._processes.pop(request.operation_id, None)
         stdout, stderr, truncated = self._truncate_logs(stdout, stderr, request.max_log_bytes)
         if process.returncode == 125:
             detail = stderr.decode("utf-8", errors="replace").strip()
@@ -70,13 +105,40 @@ class DockerSandboxBroker:
         )
 
     def get_completed(self, operation_id: str) -> SandboxResult | None:
-        del operation_id
-        return None
+        with self._process_lock:
+            result = self._completed.get(operation_id)
+            if result is not None:
+                self._completed.move_to_end(operation_id)
+            return result
 
     def cancel(self, operation_id: str) -> None:
-        process = self._processes.get(operation_id)
+        with self._process_lock:
+            process = self._processes.get(operation_id)
         if process is not None and process.poll() is None:
             process.terminate()
+
+    def _remember_completed(self, result: SandboxResult) -> None:
+        with self._process_lock:
+            self._completed[result.operation_id] = result
+            self._completed.move_to_end(result.operation_id)
+            while len(self._completed) > self._max_completed_results:
+                self._completed.popitem(last=False)
+
+    def _claim_execution(self, operation_id: str) -> tuple[Future[SandboxResult], bool]:
+        with self._process_lock:
+            existing = self._inflight.get(operation_id)
+            if existing is not None:
+                return existing, False
+            future: Future[SandboxResult] = Future()
+            self._inflight[operation_id] = future
+            return future, True
+
+    @staticmethod
+    def _await_execution(future: Future[SandboxResult], timeout_seconds: int) -> SandboxResult:
+        try:
+            return future.result(timeout=timeout_seconds)
+        except FutureTimeout as exc:
+            raise SandboxUnavailable("An existing sandbox operation did not finish before the fixed timeout.") from exc
 
     def build_command(self, request: SandboxRunRequest) -> list[str]:
         if request.network_policy is not NetworkPolicy.OFFLINE:

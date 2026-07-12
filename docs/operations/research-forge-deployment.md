@@ -6,7 +6,7 @@ This runbook deploys the implemented VS-001 baseline path: PostgreSQL source of 
 
 The API validates a frozen local repository path and persists that exact path in the Mission specification. Docker also receives that path as a bind-mount source. Therefore the API, publisher, and worker must run on the same Linux host filesystem; only PostgreSQL and Redis are composed as containers. Running the worker inside a conventional container would make the Docker daemon see a different bind-mount path and would break the pinned-workspace guarantee.
 
-The `research-forge` user must not be a general administrator. Only `research-forge-worker.service` is placed in the `docker` group. The API and publisher do not have Docker access.
+The `research-forge` user must not be a general administrator. Only `research-forge-sandbox-broker.service` is placed in the `docker` group. The API, publisher, and worker do not have Docker access; the worker can reach only the broker's fixed Unix-socket protocol.
 
 ## Prerequisites
 
@@ -18,6 +18,7 @@ The `research-forge` user must not be a general administrator. Only `research-fo
 ```bash
 sudo install -d -o research-forge -g research-forge -m 0750 \
   /srv/research-forge/{repositories,papers,workspaces,cas}
+sudo install -d -o research-forge -g research-forge -m 0750 /var/lib/research-forge/broker
 sudo install -d -o root -g research-forge -m 0750 /etc/research-forge
 ```
 
@@ -49,13 +50,13 @@ Before enabling service, verify that the image reference in policy resolves to t
 
 ## Install process roles
 
-Install the three supplied units, reload systemd, and enable them in this order:
+Install the four supplied units, reload systemd, and enable the Docker broker before the worker:
 
 ```bash
 sudo cp /opt/research-forge/deploy/research-forge/systemd/*.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now research-forge-api research-forge-publisher research-forge-worker
-sudo systemctl status research-forge-api research-forge-publisher research-forge-worker
+sudo systemctl enable --now research-forge-api research-forge-publisher research-forge-sandbox-broker research-forge-worker
+sudo systemctl status research-forge-api research-forge-publisher research-forge-sandbox-broker research-forge-worker
 ```
 
 Keep the API bound to `127.0.0.1:8080`. Put a TLS-terminating reverse proxy in front of it if remote reviewers need the Forge console. Proxy only the API endpoint, configure `RF_CORS_ORIGINS` to the exact console origin, and never expose PostgreSQL, Redis, or the Docker socket.
@@ -70,10 +71,10 @@ sudo -u research-forge -H bash -lc '
   /opt/research-forge/.venv/bin/python -m research_forge.bootstrap.runtime healthcheck
 '
 docker compose -f /opt/research-forge/deploy/research-forge/compose.dependencies.yml ps
-journalctl -u research-forge-worker -u research-forge-publisher --since "15 minutes ago"
+journalctl -u research-forge-worker -u research-forge-publisher -u research-forge-sandbox-broker --since "15 minutes ago"
 ```
 
-Queue messages are only Attempt IDs. PostgreSQL remains the source of truth; the worker acknowledges a Redis message only after the complete Mission path has durably finished. A repeated delivery after a crash is expected and is protected by operation idempotency and CAS hashes.
+The runtime healthcheck verifies PostgreSQL, Redis, and the broker Unix socket. Queue messages are only Attempt IDs. PostgreSQL remains the source of truth; the worker acknowledges a Redis message only after the complete Mission path has durably finished. A repeated delivery after a crash is expected and is protected by broker-side completed-result recovery, operation idempotency, and CAS hashes.
 
 ## Recovery, backup, and rollout
 

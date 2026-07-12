@@ -50,8 +50,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_publisher(runtime, arguments.poll_seconds)
         if arguments.role == "worker":
             return _run_worker(runtime, arguments.poll_seconds)
-        runtime.check_dependencies()
-        LOGGER.info("PostgreSQL and Redis are reachable.")
+        runtime.check_dependencies(check_broker=True)
+        LOGGER.info("PostgreSQL, Redis, and the sandbox broker are reachable.")
         return 0
     except KeyboardInterrupt:
         LOGGER.info("Process stopped by operator.")

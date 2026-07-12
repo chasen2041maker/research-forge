@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from research_forge.adapters.outbound.sandbox import UnixSandboxBrokerClient
 from research_forge.bootstrap import ProductionVs001Settings, build_production_vs001_runtime
 
 
@@ -50,6 +51,7 @@ def test_production_composition_exposes_health_and_checks_dependencies(tmp_path:
         schema=_schema(),
         workspace_root=tmp_path / "workspaces",
         artifact_root=tmp_path / "cas",
+        broker_socket_path=tmp_path / "broker" / "sandbox.sock",
         paper_artifacts={"paper-toy-001": "a" * 64},
         allowed_images={"sha256:" + "b" * 64: "example.invalid/repro@sha256:" + "b" * 64},
         cors_origins=("http://localhost:3000",),
@@ -60,6 +62,8 @@ def test_production_composition_exposes_health_and_checks_dependencies(tmp_path:
     assert TestClient(runtime.app).get("/healthz").json() == {"status": "ok"}
     runtime.check_dependencies()
     assert runtime.process_one(owner="worker-test") is False
+    assert runtime.baseline_worker._use_cases.run._sandbox_executor is runtime.sandbox_client
+    assert isinstance(runtime.sandbox_client, UnixSandboxBrokerClient)
 
 
 def test_production_settings_loads_only_explicit_environment_and_policy_files(tmp_path: Path) -> None:
@@ -85,9 +89,11 @@ def test_production_settings_loads_only_explicit_environment_and_policy_files(tm
             "RF_POLICY_PATH": str(policy_path),
             "RF_WORKSPACE_ROOT": str(tmp_path / "workspaces"),
             "RF_ARTIFACT_ROOT": str(tmp_path / "cas"),
+            "RF_BROKER_SOCKET_PATH": str(tmp_path / "broker" / "sandbox.sock"),
             "RF_CORS_ORIGINS": "https://forge.example.test, https://review.example.test",
         }
     )
 
     assert settings.paper_artifacts == {"paper-toy-001": "a" * 64}
+    assert settings.broker_socket_path == (tmp_path / "broker" / "sandbox.sock").resolve()
     assert settings.cors_origins == ("https://forge.example.test", "https://review.example.test")

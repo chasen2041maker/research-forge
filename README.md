@@ -151,7 +151,7 @@ The local API defaults to loopback and requires a Bearer token. CORS is restrict
 ## Security boundaries
 
 - Formal run stages use `--network none`; no run-stage network is allowed.
-- The Docker broker is the only execution boundary that invokes Docker. API and Outbox publisher roles do not require the Docker socket; the dedicated sandbox worker does.
+- The Docker broker runs as a separate Unix-socket service and is the only process that invokes Docker. API, Outbox publisher, and worker roles do not receive the Docker socket; the worker can send only typed offline requests to the broker.
 - Candidate commits are limited by allowed paths, file count, changed lines, one commit, and one run.
 - Archive extraction rejects traversal, absolute paths, links, and unexpected members.
 - The approval record binds scope, task, parent Attempt, decision identity, expiry, and the exact patch hash.

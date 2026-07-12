@@ -145,7 +145,7 @@ DecisionEngine 仅提出一个补丁
 ## 生产部署与安全边界
 
 - 正式运行阶段必须使用 `--network none`，不允许执行阶段联网。
-- 只有 Docker broker 可以调用 Docker。API 与 Outbox 发布器没有 Docker socket 权限；专用 sandbox worker 才有该权限。
+- Docker broker 是独立 Unix socket 服务，也是唯一可调用 Docker 的进程。API、Outbox 发布器和 worker 都没有 Docker socket 权限；worker 只能向 broker 发送带类型的离线请求。
 - 候选 commit 受允许路径、文件数、变更行数、一次提交和一次执行的硬限制。
 - Bundle 解压拒绝路径穿越、绝对路径、链接和未声明成员。
 - 审批绑定 scope、Task、父 Attempt、决策身份、到期时间和准确的补丁 hash。

@@ -1,0 +1,24 @@
+[Unit]
+Description=Research Forge isolated Docker sandbox broker
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+Type=simple
+User=research-forge
+Group=research-forge
+SupplementaryGroups=docker
+WorkingDirectory=/opt/research-forge/backend
+EnvironmentFile=/etc/research-forge/research-forge.env
+ExecStart=/opt/research-forge/.venv/bin/python -m research_forge.bootstrap.sandbox_broker
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/srv/research-forge/repositories /srv/research-forge/papers
+ReadWritePaths=/srv/research-forge/workspaces /var/lib/research-forge/broker
+
+[Install]
+WantedBy=multi-user.target

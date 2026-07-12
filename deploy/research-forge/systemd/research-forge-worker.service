@@ -1,13 +1,12 @@
 [Unit]
-Description=Research Forge privileged baseline sandbox worker
-After=network-online.target docker.service research-forge-publisher.service
-Wants=network-online.target docker.service
+Description=Research Forge baseline worker using the isolated sandbox broker
+After=network-online.target research-forge-publisher.service research-forge-sandbox-broker.service
+Wants=network-online.target research-forge-sandbox-broker.service
 
 [Service]
 Type=simple
 User=research-forge
 Group=research-forge
-SupplementaryGroups=docker
 WorkingDirectory=/opt/research-forge/backend
 EnvironmentFile=/etc/research-forge/research-forge.env
 ExecStart=/opt/research-forge/.venv/bin/python -m research_forge.bootstrap.runtime worker --poll-seconds 1

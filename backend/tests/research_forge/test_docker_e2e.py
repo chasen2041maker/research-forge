@@ -168,12 +168,23 @@ def test_docker_broker_runs_the_complete_offline_baseline_flow(tmp_path: Path) -
         workspace_root=tmp_path / "workspaces",
         allowed_images={image_digest: image_digest},
     )
-    execution = RunBaselineAttempt(
+    runner = RunBaselineAttempt(
         unit_of_work=uow,
         sandbox_executor=sandbox,
         clock=clock,
         id_generator=ids,
-    ).execute(
+    )
+    with pytest.raises(RuntimeError, match="simulated worker crash"):
+        runner.execute(
+            attempt_id=mission.attempt_id,
+            owner=lease.owner,
+            epoch=lease.epoch,
+            expected_version=lease.version,
+            idempotency_key=f"{mission.attempt_id}:sandbox",
+            worktree_path=workspace.worktree_path,
+            after_execution=lambda: (_ for _ in ()).throw(RuntimeError("simulated worker crash")),
+        )
+    execution = runner.execute(
         attempt_id=mission.attempt_id,
         owner=lease.owner,
         epoch=lease.epoch,
