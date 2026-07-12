@@ -77,7 +77,7 @@ npm install
 npm run build
 ```
 
-The GitHub Actions workflow runs mypy, the non-Docker suite, architecture checks, Alembic upgrade/downgrade contract, a separate Linux Docker end-to-end gate, and the 16-case frozen evaluation manifest on every push to `main`. The evaluation job retains a JSON artifact containing all Case outcomes and the Manifest SHA-256.
+The GitHub Actions workflow runs mypy, the non-Docker suite, architecture checks, Alembic upgrade/downgrade contract, a separate Linux Docker end-to-end gate, and the 16-case frozen evaluation manifest on every push to `main`. The custom AST checks enforce the inbound/outbound/decision boundary, platform SDK ownership, public-signature shape, and an acyclic internal import graph. The evaluation job retains a JSON artifact containing all Case outcomes and the Manifest SHA-256.
 
 ## Core concepts
 

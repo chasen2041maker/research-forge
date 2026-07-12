@@ -3,11 +3,21 @@
 from __future__ import annotations
 
 import ast
+from collections import defaultdict
 from pathlib import Path
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2] / "research_forge"
 FORBIDDEN_FRAMEWORKS = {"celery", "docker", "fastapi", "langgraph", "pydantic", "redis", "sqlalchemy"}
+PLATFORM_IMPORT_OWNERS = {
+    "celery": ("adapters/outbound/queue/",),
+    "docker": ("adapters/outbound/sandbox/",),
+    "fastapi": ("adapters/inbound/api/", "bootstrap/"),
+    "langgraph": ("adapters/decision/",),
+    "pydantic": ("adapters/inbound/api/",),
+    "redis": ("adapters/outbound/queue/", "bootstrap/"),
+    "sqlalchemy": ("adapters/outbound/persistence/", "bootstrap/"),
+}
 
 
 def _imports(path: Path) -> set[str]:
@@ -27,6 +37,33 @@ def _module_path(path: Path) -> str:
 
 def _is_framework_import(name: str) -> bool:
     return name.split(".")[0] in FORBIDDEN_FRAMEWORKS
+
+
+def _is_owned_by(relative: str, owners: tuple[str, ...]) -> bool:
+    return any(relative.startswith(owner) for owner in owners)
+
+
+def _module_name(path: Path) -> str:
+    relative = path.relative_to(PACKAGE_ROOT).with_suffix("")
+    parts = list(relative.parts)
+    if parts[-1] == "__init__":
+        parts.pop()
+    return ".".join(("research_forge", *parts))
+
+
+def _contains_bare_dict_any(annotation: ast.expr | None) -> bool:
+    if not isinstance(annotation, ast.Subscript) or not isinstance(annotation.value, ast.Name):
+        return False
+    if annotation.value.id not in {"dict", "Dict"} or not isinstance(annotation.slice, ast.Tuple):
+        return False
+    elements = annotation.slice.elts
+    return (
+        len(elements) == 2
+        and isinstance(elements[0], ast.Name)
+        and elements[0].id == "str"
+        and isinstance(elements[1], ast.Name)
+        and elements[1].id == "Any"
+    )
 
 
 def test_architecture_import_contracts() -> None:
@@ -52,10 +89,72 @@ def test_architecture_import_contracts() -> None:
                 violations.append(f"{relative}: Application imports forbidden dependency {imported}")
             if relative.startswith("adapters/inbound/") and imported.startswith("research_forge.adapters.outbound"):
                 violations.append(f"{relative}: Inbound adapter imports outbound adapter {imported}")
+            if relative.startswith("adapters/decision/") and (
+                imported.startswith("research_forge.adapters.inbound")
+                or imported.startswith("research_forge.adapters.outbound")
+                or imported.startswith("research_forge.application.ports")
+            ):
+                violations.append(f"{relative}: Decision adapter imports side-effect dependency {imported}")
+            if relative.startswith("adapters/outbound/") and imported.startswith("research_forge.application.") and not (
+                imported.startswith("research_forge.application.dto")
+                or imported.startswith("research_forge.application.ports")
+            ):
+                violations.append(f"{relative}: Outbound adapter imports Application implementation {imported}")
             if not relative.startswith("bootstrap/") and imported.startswith("research_forge.bootstrap"):
                 violations.append(f"{relative}: imports Bootstrap outside composition root")
             if imported == "subprocess" and not (
                 relative.startswith("adapters/outbound/git/") or relative.startswith("adapters/outbound/sandbox/")
             ):
                 violations.append(f"{relative}: subprocess is outside Git or Sandbox adapter")
+            owner_paths = PLATFORM_IMPORT_OWNERS.get(imported.split(".")[0])
+            if owner_paths is not None and not _is_owned_by(relative, owner_paths):
+                violations.append(f"{relative}: platform dependency {imported} is outside its adapter boundary")
     assert not violations, "\n".join(violations)
+
+
+def test_public_signatures_do_not_expose_bare_dict_any() -> None:
+    violations: list[str] = []
+    for path in PACKAGE_ROOT.rglob("*.py"):
+        relative = _module_path(path)
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            annotations = [argument.annotation for argument in (*node.args.posonlyargs, *node.args.args)]
+            annotations.extend(argument.annotation for argument in node.args.kwonlyargs)
+            annotations.append(node.args.vararg.annotation if node.args.vararg is not None else None)
+            annotations.append(node.args.kwarg.annotation if node.args.kwarg is not None else None)
+            annotations.append(node.returns)
+            if any(_contains_bare_dict_any(annotation) for annotation in annotations):
+                violations.append(f"{relative}:{node.lineno}: public signature exposes dict[str, Any]")
+    assert not violations, "\n".join(violations)
+
+
+def test_internal_module_graph_is_acyclic() -> None:
+    modules = {_module_name(path): path for path in PACKAGE_ROOT.rglob("*.py")}
+    dependencies: dict[str, set[str]] = defaultdict(set)
+    for module, path in modules.items():
+        for imported in _imports(path):
+            if imported in modules and imported != module:
+                dependencies[module].add(imported)
+
+    visiting: list[str] = []
+    visited: set[str] = set()
+    cycles: list[str] = []
+
+    def visit(module: str) -> None:
+        if module in visiting:
+            start = visiting.index(module)
+            cycles.append(" -> ".join((*visiting[start:], module)))
+            return
+        if module in visited:
+            return
+        visiting.append(module)
+        for dependency in sorted(dependencies[module]):
+            visit(dependency)
+        visiting.pop()
+        visited.add(module)
+
+    for module in sorted(modules):
+        visit(module)
+    assert not cycles, "\n".join(cycles)
