@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from sqlite3 import Connection as SqliteConnection
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from research_forge.adapters.outbound.persistence import SqlAlchemyUnitOfWork
@@ -27,6 +28,12 @@ from research_forge.domain.mission import (
 
 def _session_factory() -> sessionmaker[Session]:
     engine = create_engine("sqlite+pysqlite:///:memory:")
+
+    @event.listens_for(engine, "connect")
+    def enable_foreign_keys(connection: SqliteConnection, record: object) -> None:
+        del record
+        connection.execute("PRAGMA foreign_keys=ON")
+
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine)
 

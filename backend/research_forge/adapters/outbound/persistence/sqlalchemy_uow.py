@@ -366,22 +366,28 @@ class SqlAlchemyUnitOfWork:
     def commit(self) -> None:
         session = self._require_session()
         self._flush_missions(session)
+        session.flush()
         self._flush_tasks(session)
+        session.flush()
         self._flush_attempts(session)
+        session.flush()
         for operation in self._operations.values():
             session.merge(self._operation_row(operation))
+        session.flush()
         for artifact in self._artifacts.values():
             session.merge(self._artifact_row(artifact))
         for metric in self._metrics.values():
             session.merge(self._metric_row(metric))
         for claim in self._claims.values():
             session.merge(self._claim_row(claim))
+        session.flush()
         for evidence in self._evidence.values():
             session.merge(self._evidence_row(evidence))
         for audit in self._audits.values():
             session.merge(self._audit_row(audit))
         for outbox in self._outbox.values():
             session.merge(self._outbox_row(outbox))
+        session.flush()
         for event_id, published_at in self._published_outbox_at.items():
             session.execute(
                 update(OutboxEventRow)
@@ -392,6 +398,7 @@ class SqlAlchemyUnitOfWork:
             session.merge(self._bundle_row(mission_id, bundle))
         for approval in self._approvals.values():
             session.merge(self._approval_row(approval))
+        session.flush()
         session.commit()
         self._committed = True
 
