@@ -7,6 +7,7 @@ import os
 import platform
 
 from research_forge.adapters.outbound.sandbox import DockerSandboxBroker, UnixSandboxBrokerServer
+from research_forge.bootstrap.observability import configure_json_logging
 from research_forge.bootstrap.production import ProductionConfigurationError, ProductionVs001Settings
 
 
@@ -15,7 +16,7 @@ LOGGER = logging.getLogger("research_forge.sandbox_broker")
 
 def main() -> int:
     """Start the local broker only after complete immutable policy configuration is available."""
-    logging.basicConfig(level=os.getenv("RF_LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(message)s")
+    configure_json_logging(os.getenv("RF_LOG_LEVEL", "INFO"))
     if platform.system() != "Linux":
         LOGGER.error("Formal sandbox broker requires Linux or WSL2.")
         return 2

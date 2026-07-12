@@ -16,6 +16,7 @@ from collections.abc import Sequence
 
 import uvicorn
 
+from research_forge.bootstrap.observability import configure_json_logging
 from research_forge.bootstrap.production import (
     ProductionConfigurationError,
     ProductionVs001Runtime,
@@ -36,7 +37,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
     if arguments.poll_seconds <= 0:
         parser.error("--poll-seconds must be positive")
-    logging.basicConfig(level=os.getenv("RF_LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(message)s")
+    configure_json_logging(os.getenv("RF_LOG_LEVEL", "INFO"))
     try:
         runtime = build_production_vs001_runtime(ProductionVs001Settings.from_environment())
     except ProductionConfigurationError as exc:

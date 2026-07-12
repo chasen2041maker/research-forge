@@ -57,6 +57,7 @@ Mission -> Task -> lease-owned Attempt -> Operation Ledger
 - FastAPI local-token surface for Mission status, cancellation, Bundle download, and approval decisions; the Next.js Forge console reads that state without owning it.
 - SQLAlchemy source-of-truth adapter, static Alembic revisions, CI migration upgrade/downgrade verification, and a real PostgreSQL service gate.
 - A frozen 16-case release manifest with the baseline end-to-end proof repeated 10 times, repeated recovery cases, append-only JSON reports, and a retained GitHub Actions artifact.
+- Structured JSON host-process logs with bounded correlation fields and credential redaction; durable Audit/Outbox records remain the business evidence source.
 
 ## 10-second proof
 
