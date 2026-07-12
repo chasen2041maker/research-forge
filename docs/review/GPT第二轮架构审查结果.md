@@ -5,7 +5,7 @@
 * **GitHub access:** Yes
 * **Tests executed:** No；本轮为设计复审与源码交叉检查，未重新运行测试
 * **Repository baseline:** `main@86c59d375ce59f0226a3daa07d1c69133ed66cea`
-* **Files reviewed:** 修订后的 v0.1 蓝图、`CODE_ARCHITECTURE_RULES.md`、第二轮送审包，以及仓库现有 README、主图、API、状态、多分支、Sandbox 等 Legacy 实现
+* **Files reviewed:** 修订后的 v0.1 蓝图、`代码分层与架构治理规范.md`、第二轮送审包，以及仓库现有 README、主图、API、状态、多分支、Sandbox 等 Legacy 实现
 * **Assumptions:** 一名全职开发者；Linux/WSL2 为正式执行环境；普通 CPU；使用小型固定测试仓库；v0.1 为本地单用户工具，不承担多租户或公网生产 SLA
 * **Upload note:** 本轮上传的两份 26 KB 主设计文件内容相同；分层规范从仓库当前 `main` 分支读取
 

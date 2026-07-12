@@ -4,9 +4,9 @@
 >
 > 用途：对首轮审查后的收缩方案和代码分层规范进行第二轮严格审查。
 >
-> 主设计：`docs/architecture/AGENT_CAPABILITY_PLATFORM_BLUEPRINT.md`
+> 主设计：`docs/architecture/科研复现智能体架构蓝图.md`
 >
-> 分层规范：`docs/architecture/CODE_ARCHITECTURE_RULES.md`
+> 分层规范：`docs/architecture/代码分层与架构治理规范.md`
 >
 > 仓库：https://github.com/chasen2041maker/research-forge
 
@@ -305,11 +305,11 @@ https://github.com/chasen2041maker/research-forge
 首轮你给出的结论是 CONDITIONAL GO：完整 Agent OS NO-GO，只有收缩为“证据门控的科研复现 Agent”才 GO。
 
 我已经根据首轮意见重写了两份核心文档：
-1. docs/architecture/AGENT_CAPABILITY_PLATFORM_BLUEPRINT.md
-2. docs/architecture/CODE_ARCHITECTURE_RULES.md
+1. docs/architecture/科研复现智能体架构蓝图.md
+2. docs/architecture/代码分层与架构治理规范.md
 
 同时提供第二轮送审要求：
-3. docs/review/GPT_ARCHITECTURE_REVIEW_PACKAGE.md
+3. docs/review/GPT第二轮架构送审包.md
 
 请完整阅读三份文档，并在能够访问 GitHub 时交叉检查当前代码。不要重复花大量篇幅批评已经删除的“通用 Agent OS”范围，而要重点验证修订方案是否真的可实现。
 
@@ -348,7 +348,7 @@ https://github.com/chasen2041maker/research-forge
 请把 GPT 完整回复保存为：
 
 ```text
-docs/review/GPT_ARCHITECTURE_REVIEW_RESULT_V2.md
+docs/review/GPT第二轮架构审查结果.md
 ```
 
 文件头：

@@ -26,7 +26,7 @@ It does **not** yet implement the new v0.1 architecture described below:
 
 The old README and its historical feature descriptions are preserved at:
 
-[Legacy system README](./docs/legacy/LEGACY_SYSTEM_README.md)
+[旧版系统说明](./docs/legacy/旧版系统说明.md)
 
 ## v0.1 scope
 
@@ -53,21 +53,21 @@ v0.1 deliberately excludes Browser automation, MCP, first-class Skills, Reviewer
 
 ## Architecture documents
 
-- [Reviewed v0.1 architecture](./docs/architecture/AGENT_CAPABILITY_PLATFORM_BLUEPRINT.md)
-- [Code layering and governance rules](./docs/architecture/CODE_ARCHITECTURE_RULES.md)
-- [ReproductionSpec v1](./docs/specs/REPRODUCTION_SPEC_V1.md)
-- [ReproductionSpec JSON Schema](./docs/specs/reproduction-spec-v1.schema.json)
-- [First no-LLM vertical slice](./docs/specs/BASELINE_VERTICAL_SLICE.md)
-- [Second-round GPT review package](./docs/review/GPT_ARCHITECTURE_REVIEW_PACKAGE.md)
-- [Second-round GPT review result](./docs/review/GPT_ARCHITECTURE_REVIEW_RESULT_V2.md)
+- [v0.1 科研复现智能体架构蓝图](./docs/architecture/科研复现智能体架构蓝图.md)
+- [代码分层与架构治理规范](./docs/architecture/代码分层与架构治理规范.md)
+- [科研复现任务规范 v1](./docs/specs/科研复现任务规范_v1.md)
+- [科研复现任务规范 JSON Schema](./docs/specs/科研复现任务规范_v1.schema.json)
+- [第一条无 LLM 基线复现纵向切片](./docs/specs/基线复现纵向切片规范.md)
+- [GPT 第二轮架构送审包](./docs/review/GPT第二轮架构送审包.md)
+- [GPT 第二轮架构审查结果](./docs/review/GPT第二轮架构审查结果.md)
 
 ### Accepted ADRs
 
-- [ADR-001: Application-centric layering](./docs/adr/ADR-001-LAYERING.md)
-- [ADR-002: Sources of truth](./docs/adr/ADR-002-SOURCE-OF-TRUTH.md)
-- [ADR-003: Cross-store Operation Ledger](./docs/adr/ADR-003-CROSS-STORE-OPERATIONS.md)
-- [ADR-004: Worker lifecycle semantics](./docs/adr/ADR-004-WORKER-SEMANTICS.md)
-- [ADR-005: Linux/WSL2 sandbox platform](./docs/adr/ADR-005-SANDBOX-PLATFORM.md)
+- [架构决策记录 001：分层架构](./docs/adr/架构决策记录-001-分层架构.md)
+- [架构决策记录 002：事实来源](./docs/adr/架构决策记录-002-事实来源.md)
+- [架构决策记录 003：跨存储操作](./docs/adr/架构决策记录-003-跨存储操作.md)
+- [架构决策记录 004：工作进程生命周期](./docs/adr/架构决策记录-004-工作进程生命周期.md)
+- [架构决策记录 005：沙箱平台](./docs/adr/架构决策记录-005-沙箱平台.md)
 
 ## First implementation milestone
 
