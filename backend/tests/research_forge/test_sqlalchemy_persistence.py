@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from research_forge.adapters.outbound.persistence import SqlAlchemyUnitOfWork
 from research_forge.adapters.outbound.persistence.models import ApprovalRow, AuditEventRow, Base, OutboxEventRow
 from research_forge.domain.approval import Approval, ApprovalStatus
+from research_forge.domain.artifact import ArtifactRef
 from research_forge.domain.errors import OptimisticLockConflict
 from research_forge.domain.execution import Operation, OperationStatus, OperationType
 from research_forge.domain.mission import (
@@ -246,6 +247,7 @@ def test_sqlalchemy_uow_persists_approval_and_resumed_attempt() -> None:
             scope="CANDIDATE_COMMIT",
             requested_at=now,
             expires_at=now + timedelta(minutes=5),
+            patch_artifact=ArtifactRef("b" * 64, 42, "text/x-diff; charset=utf-8"),
         )
         approval.approve(decided_by="reviewer", now=now)
         resumed = Attempt(
@@ -266,6 +268,7 @@ def test_sqlalchemy_uow_persists_approval_and_resumed_attempt() -> None:
         resumed = reloaded.get_attempt("attempt-2")
         assert approval is not None and approval.status is ApprovalStatus.APPROVED
         assert approval.decided_by == "reviewer"
+        assert approval.patch_artifact == ArtifactRef("b" * 64, 42, "text/x-diff; charset=utf-8")
         assert resumed is not None and resumed.resume_from_attempt_id == AttemptId("attempt-1")
         reloaded.commit()
     with session_factory() as session:

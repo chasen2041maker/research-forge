@@ -86,7 +86,7 @@ The runtime healthcheck verifies PostgreSQL, Redis, and the broker Unix socket. 
 
 - **Publisher, reconciler, or worker restart:** restart the unit. Unpublished Outbox events remain in PostgreSQL, stale ledger operations are requeued by the reconciler, and unacknowledged Redis deliveries remain available for retry.
 - **Cancellation or failed sandbox execution:** a cancellation request is durable first; the worker observes it, sends the bounded cancel operation to the broker, records `CANCELLED`, and then acknowledges the Attempt delivery without registering later artifacts. Inspect the Mission evidence and worker journal. Do not hand-edit worktrees, CAS bytes, operations, or approval records; cancel the Mission or create a new frozen Mission instead. Bundle replay rejects traversal, links, non-file members, excess member count, oversized members, excess extraction size, and compression-ratio bombs.
-- **Unexpected repair Attempt:** the shipped production worker fails closed and leaves it unacknowledged because no LLM DecisionEngine is configured. Stop the worker, investigate the durable approval and policy, and deploy a separately reviewed repair worker before retrying. Do not point the production service at the test-only fixed-patch adapter.
+- **Unexpected repair Attempt:** the shipped production baseline worker does not consume the repair Stream because no LLM DecisionEngine worker is configured. Investigate the durable approval, policy, and persisted PATCH artifact, then deploy a separately reviewed repair worker before retrying. That worker must read the exact approved CAS patch bytes and must not point production at the test-only fixed-patch adapter or regenerate a patch after approval.
 - **Database backup:** use a consistent `pg_dump` from the Postgres container, then separately snapshot the CAS and workspace roots. A database-only restore cannot reproduce artifact bytes.
 
 ```bash
@@ -104,4 +104,4 @@ cd /opt/research-forge
 
 ## Boundaries not represented as shipped production capability
 
-VS-001 deliberately does not ship an LLM DecisionEngine, remote repository fetching, remote artifact fetching, or autonomous pull-request creation. A future repair worker must receive only the decision port and must preserve the existing patch hash, approval, lease, operation-ledger, offline sandbox, and evidence gates.
+VS-001 deliberately does not ship an LLM provider, remote repository fetching, remote artifact fetching, or autonomous pull-request creation. A future repair worker must receive only the decision port and must preserve the persisted patch artifact, its hash-bound approval, lease, operation-ledger, offline sandbox, and evidence gates.

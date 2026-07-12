@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from research_forge.domain.artifact import ArtifactKind, ArtifactRef, ArtifactRegistration
 from research_forge.domain.approval import Approval, ApprovalStatus
-from research_forge.domain.errors import OptimisticLockConflict
+from research_forge.domain.errors import OperationConflict, OptimisticLockConflict
 from research_forge.domain.evidence import Claim, ClaimStatus, ClaimType, EvidenceLink, EvidenceType, MetricRecord
 from research_forge.domain.execution import Operation, OperationStatus, OperationType
 from research_forge.domain.mission import (
@@ -351,6 +351,7 @@ class SqlAlchemyUnitOfWork:
             decided_at=row.decided_at,
             decided_by=row.decided_by,
             version=row.version,
+            patch_artifact=_approval_patch_artifact(row),
         )
         self._approvals[approval_id] = approval
         self._approval_versions[approval_id] = row.version
@@ -542,6 +543,9 @@ class SqlAlchemyUnitOfWork:
                 "attempt_id": str(approval.attempt_id),
                 "action_type": approval.action_type,
                 "action_hash": approval.action_hash,
+                "patch_sha256": approval.patch_artifact.sha256 if approval.patch_artifact is not None else None,
+                "patch_size_bytes": approval.patch_artifact.size_bytes if approval.patch_artifact is not None else None,
+                "patch_media_type": approval.patch_artifact.media_type if approval.patch_artifact is not None else None,
                 "risk_level": approval.risk_level,
                 "scope": approval.scope,
                 "requested_at": approval.requested_at,
@@ -731,6 +735,9 @@ class SqlAlchemyUnitOfWork:
             attempt_id=str(approval.attempt_id),
             action_type=approval.action_type,
             action_hash=approval.action_hash,
+            patch_sha256=approval.patch_artifact.sha256 if approval.patch_artifact is not None else None,
+            patch_size_bytes=approval.patch_artifact.size_bytes if approval.patch_artifact is not None else None,
+            patch_media_type=approval.patch_artifact.media_type if approval.patch_artifact is not None else None,
             risk_level=approval.risk_level,
             scope=approval.scope,
             requested_at=approval.requested_at,
@@ -745,7 +752,6 @@ class SqlAlchemyUnitOfWork:
         if self._session is None:
             raise RuntimeError("SQLAlchemy UoW access requires an active context.")
         return self._session
-
     def _reset_buffers(self) -> None:
         self._missions = {}
         self._mission_versions = {}
@@ -765,3 +771,12 @@ class SqlAlchemyUnitOfWork:
         self._bundles = {}
         self._approvals = {}
         self._approval_versions = {}
+
+
+def _approval_patch_artifact(row: ApprovalRow) -> ArtifactRef | None:
+    values = (row.patch_sha256, row.patch_size_bytes, row.patch_media_type)
+    if values == (None, None, None):
+        return None
+    if row.patch_sha256 is None or row.patch_size_bytes is None or row.patch_media_type is None:
+        raise OperationConflict("Approval patch artifact reference is incomplete.")
+    return ArtifactRef(row.patch_sha256, row.patch_size_bytes, row.patch_media_type)

@@ -6,15 +6,13 @@ import hashlib
 import json
 from dataclasses import dataclass
 
-from research_forge.application.dto.repair import CandidateCommitRequest, DecisionRequest
+from research_forge.application.dto.repair import CandidateCommitRequest
 from research_forge.application.ports.artifacts import ArtifactStore
-from research_forge.application.ports.decision import DecisionEngine
 from research_forge.application.ports.system import Clock, IdGenerator
 from research_forge.application.ports.unit_of_work import UnitOfWork
 from research_forge.application.ports.workspace import WorkspaceManager
 from research_forge.application.use_cases.claim_baseline_attempt import AttemptNotFound
 from research_forge.domain.approval import ApprovalStatus
-from research_forge.domain.artifact import ArtifactKind
 from research_forge.domain.errors import OperationConflict
 from research_forge.domain.execution import Operation, OperationStatus, OperationType
 from research_forge.domain.mission import AttemptId, AuditEvent, TaskType
@@ -29,7 +27,7 @@ class RepairCandidateView:
 
 
 class PrepareRepairCandidate:
-    """Make the Application layer validate one proposal and register its idempotent Git operation."""
+    """Apply only the immutable patch bytes bound to an approved record."""
 
     def __init__(
         self,
@@ -37,14 +35,12 @@ class PrepareRepairCandidate:
         unit_of_work: UnitOfWork,
         artifact_store: ArtifactStore,
         workspace_manager: WorkspaceManager,
-        decision_engine: DecisionEngine,
         clock: Clock,
         id_generator: IdGenerator,
     ) -> None:
         self._unit_of_work = unit_of_work
         self._artifact_store = artifact_store
         self._workspace_manager = workspace_manager
-        self._decision_engine = decision_engine
         self._clock = clock
         self._id_generator = id_generator
 
@@ -59,12 +55,7 @@ class PrepareRepairCandidate:
         approval_id: str,
     ) -> RepairCandidateView:
         context = self._load_context(attempt_id, owner, epoch, expected_version, approval_id)
-        proposal = self._decision_engine.propose(context.request)
-        if proposal.action_type != "APPLY_PATCH" or not proposal.unified_diff.strip():
-            raise OperationConflict("Repair DecisionEngine may only propose one non-empty APPLY_PATCH action.")
-        input_hash = hashlib.sha256(proposal.unified_diff.encode("utf-8")).hexdigest()
-        if input_hash != context.approval_action_hash:
-            raise OperationConflict("Approved patch hash does not match the current DecisionEngine proposal.")
+        input_hash = hashlib.sha256(context.unified_diff.encode("utf-8")).hexdigest()
         operation = self._prepare_operation(
             attempt_id=attempt_id,
             owner=owner,
@@ -91,7 +82,7 @@ class PrepareRepairCandidate:
         commit = self._workspace_manager.commit_candidate(
             CandidateCommitRequest(
                 worktree_path=candidate.worktree_path,
-                unified_diff=proposal.unified_diff,
+                unified_diff=context.unified_diff,
                 allowed_paths=context.allowed_paths,
                 max_files=context.max_files,
                 max_changed_lines=context.max_changed_lines,
@@ -133,40 +124,39 @@ class PrepareRepairCandidate:
             approval = self._unit_of_work.get_approval(approval_id)
             if approval is None or approval.status is not ApprovalStatus.APPROVED:
                 raise OperationConflict("Candidate commit requires an approved persistent Approval record.")
-            if approval.scope != "CANDIDATE_COMMIT" or approval.task_id != task.task_id:
+            if (
+                approval.scope != "CANDIDATE_COMMIT"
+                or approval.action_type != OperationType.CANDIDATE_COMMIT
+                or approval.task_id != task.task_id
+                or approval.mission_id != mission.mission_id
+            ):
                 raise OperationConflict("Approval scope does not authorize this repair candidate task.")
             if attempt.resume_from_attempt_id != approval.attempt_id:
                 raise OperationConflict("Repair candidate must resume from the Attempt that requested approval.")
+            if approval.patch_artifact is None:
+                raise OperationConflict("Approval is missing its persisted patch artifact.")
+            if approval.patch_artifact.sha256 != approval.action_hash:
+                raise OperationConflict("Approved patch artifact hash does not match the Approval action hash.")
+            patch_payload = self._artifact_store.read_verified(approval.patch_artifact)
+            if hashlib.sha256(patch_payload).hexdigest() != approval.action_hash:
+                raise OperationConflict("Persisted patch artifact bytes do not match the Approval action hash.")
+            try:
+                unified_diff = patch_payload.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise OperationConflict("Persisted patch artifact must be UTF-8 unified diff bytes.") from exc
+            if not _is_unified_diff(unified_diff):
+                raise OperationConflict("Persisted patch artifact is not a unified diff.")
             spec = json.loads(mission.normalized_spec_json)
             if spec["mode"] != "repair":
                 raise OperationConflict("Repair candidate requires mode='repair'.")
-            baseline_task = next(
-                item for item in self._unit_of_work.get_tasks_for_mission(str(mission.mission_id))
-                if item.task_type is TaskType.BASELINE_REPRODUCTION
-            )
-            baseline_attempt = self._unit_of_work.get_attempts_for_task(str(baseline_task.task_id))[0]
-            baseline_log = next(
-                artifact
-                for artifact in self._unit_of_work.get_artifacts_for_attempt(str(baseline_attempt.attempt_id))
-                if artifact.kind is ArtifactKind.EXECUTION_LOG
-            )
-            request = DecisionRequest(
-                mission_id=str(mission.mission_id),
-                spec_sha256=mission.spec_sha256,
-                baseline_log=self._artifact_store.read_verified(baseline_log.artifact).decode("utf-8", errors="replace"),
-                allowed_paths=tuple(spec["change_budget"]["allowed_paths"]),
-                max_files=spec["change_budget"]["max_files"],
-                max_changed_lines=spec["change_budget"]["max_changed_lines"],
-            )
             self._unit_of_work.commit()
         return _RepairContext(
-            request=request,
             mission_id=str(mission.mission_id),
             parent_commit_sha=spec["repository"]["commit_sha"],
-            allowed_paths=request.allowed_paths,
-            max_files=request.max_files,
-            max_changed_lines=request.max_changed_lines,
-            approval_action_hash=approval.action_hash,
+            allowed_paths=tuple(spec["change_budget"]["allowed_paths"]),
+            max_files=spec["change_budget"]["max_files"],
+            max_changed_lines=spec["change_budget"]["max_changed_lines"],
+            unified_diff=unified_diff,
         )
 
     def _prepare_operation(
@@ -242,10 +232,13 @@ class PrepareRepairCandidate:
 
 @dataclass(frozen=True, slots=True)
 class _RepairContext:
-    request: DecisionRequest
     mission_id: str
     parent_commit_sha: str
     allowed_paths: tuple[str, ...]
     max_files: int
     max_changed_lines: int
-    approval_action_hash: str
+    unified_diff: str
+
+
+def _is_unified_diff(value: str) -> bool:
+    return value.startswith("diff --git ") and "\n--- " in value and "\n+++ " in value and "\n@@ " in value

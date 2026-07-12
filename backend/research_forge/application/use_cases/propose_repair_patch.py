@@ -47,8 +47,8 @@ class ProposeRepairPatch:
     ) -> RepairProposalView:
         request = self._load_request(attempt_id, owner, epoch, expected_version)
         proposal = self._decision_engine.propose(request)
-        if proposal.action_type != "APPLY_PATCH" or not proposal.unified_diff.strip():
-            raise OperationConflict("Repair DecisionEngine may only propose one non-empty APPLY_PATCH action.")
+        if proposal.action_type != "APPLY_PATCH" or not _is_unified_diff(proposal.unified_diff):
+            raise OperationConflict("Repair DecisionEngine may only propose one non-empty unified APPLY_PATCH diff.")
         return RepairProposalView(proposal=proposal)
 
     def _load_request(
@@ -104,3 +104,7 @@ class ProposeRepairPatch:
             )
             self._unit_of_work.commit()
         return request
+
+
+def _is_unified_diff(value: str) -> bool:
+    return value.startswith("diff --git ") and "\n--- " in value and "\n+++ " in value and "\n@@ " in value

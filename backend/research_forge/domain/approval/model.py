@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
+from research_forge.domain.artifact import ArtifactRef
 from research_forge.domain.errors import DomainViolation
 from research_forge.domain.mission import AttemptId, MissionId, TaskId
 
@@ -33,6 +34,7 @@ class Approval:
     decided_at: datetime | None = None
     decided_by: str | None = None
     version: int = 0
+    patch_artifact: ArtifactRef | None = None
 
     def approve(self, *, decided_by: str, now: datetime) -> None:
         self._ensure_pending(now)

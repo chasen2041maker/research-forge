@@ -11,6 +11,7 @@ from research_forge.domain.mission import AttemptId
 
 class ArtifactKind(StrEnum):
     EXECUTION_LOG = "EXECUTION_LOG"
+    PATCH = "PATCH"
     METRIC = "METRIC"
     BUNDLE = "BUNDLE"
     ENVIRONMENT = "ENVIRONMENT"
