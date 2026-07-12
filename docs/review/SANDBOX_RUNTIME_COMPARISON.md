@@ -13,7 +13,7 @@ Reviewed: 2026-07-12
 
 ## Research Forge decision
 
-One Operation has one deterministic container name (`rf-<sha256(operation-id)[:20]>`) and one private Broker State directory. The broker writes immutable request binding and completed result bytes with staged `fsync` plus atomic replacement. A fresh broker validates those bytes before returning them. PostgreSQL still owns Operation status, Git owns code, CAS owns registered artifacts, and Broker State only bridges the crash window before DB/CAS finalization.
+One Operation has one deterministic container name (`rf-<sha256(operation-id)[:20]>`) and one private Broker State directory. The broker writes immutable request binding and completed result bytes with staged `fsync` plus atomic replacement. A terminal cancellation marker is serialized against result persistence with an operation-directory lock, so cancellation and completion cannot both win. A fresh broker validates those bytes before returning them. PostgreSQL still owns Operation status, Git owns code, CAS owns registered artifacts, and Broker State only bridges the crash window before DB/CAS finalization.
 
 ## Trade-offs and rollback
 
