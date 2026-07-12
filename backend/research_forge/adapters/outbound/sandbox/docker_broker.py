@@ -53,6 +53,8 @@ class DockerSandboxBroker:
         if platform.system() != "Linux":
             raise SandboxUnavailable("Formal sandbox execution requires Linux or WSL2.")
         try:
+            if self._state.is_cancelled(request.operation_id):
+                raise SandboxUnavailable("Sandbox operation was cancelled.")
             existing = self._load_completed(request)
         except BrokerStateConflict as exc:
             raise SandboxUnavailable(str(exc)) from exc
@@ -76,6 +78,11 @@ class DockerSandboxBroker:
                 self._inflight.pop(request.operation_id, None)
 
     def get_completed(self, operation_id: str) -> SandboxResult | None:
+        try:
+            if self._state.is_cancelled(operation_id):
+                return None
+        except BrokerStateConflict as exc:
+            raise SandboxUnavailable(str(exc)) from exc
         with self._process_lock:
             cached = self._completed.get(operation_id)
             if cached is not None:
@@ -91,6 +98,10 @@ class DockerSandboxBroker:
 
     def cancel(self, operation_id: str) -> None:
         """Stop, kill if needed, and remove the deterministic operation container idempotently."""
+        try:
+            self._state.mark_cancelled(operation_id)
+        except BrokerStateConflict as exc:
+            raise SandboxUnavailable(str(exc)) from exc
         name = self.container_name(operation_id)
         if not self._container_exists(name):
             return
@@ -103,6 +114,8 @@ class DockerSandboxBroker:
         return "rf-" + hashlib.sha256(operation_id.encode("utf-8")).hexdigest()[:20]
 
     def _run_container(self, request: SandboxRunRequest) -> SandboxResult:
+        if self._state.is_cancelled(request.operation_id):
+            raise SandboxUnavailable("Sandbox operation was cancelled.")
         request_hash = self._state.remember_request(request)
         existing = self._load_completed(request)
         if existing is not None:
@@ -127,6 +140,8 @@ class DockerSandboxBroker:
         except TimeoutExpired as exc:
             self.cancel(request.operation_id)
             raise SandboxUnavailable("Sandbox execution exceeded its fixed timeout and was cleaned up.") from exc
+        if self._state.is_cancelled(request.operation_id):
+            raise SandboxUnavailable("Sandbox operation was cancelled.")
         exit_code = self._exit_code(name)
         stdout, stderr, truncated = self._capture_logs(name, request.max_log_bytes)
         outputs = self._read_outputs(request)
@@ -141,7 +156,12 @@ class DockerSandboxBroker:
             dataset_sha256="0" * 64,
             logs_truncated=truncated,
         )
-        self._state.persist_completed(request, result)
+        try:
+            self._state.persist_completed(request, result)
+        except BrokerStateConflict as exc:
+            if "cancelled" in str(exc):
+                raise SandboxUnavailable("Sandbox operation was cancelled.") from exc
+            raise
         self._docker(("rm", "-f", name), allow_failure=True)
         return result
 

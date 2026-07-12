@@ -69,3 +69,13 @@ def test_state_store_rejects_a_symlinked_payload(tmp_path) -> None:
 
     with pytest.raises(PathSafetyViolation, match="symbolic links"):
         state.load_completed(request.operation_id, request)
+
+
+def test_state_store_cancellation_wins_before_result_persistence(tmp_path) -> None:
+    request = _request()
+    state = BrokerStateStore(tmp_path / "broker-state")
+    state.mark_cancelled(request.operation_id)
+
+    assert state.is_cancelled(request.operation_id) is True
+    with pytest.raises(BrokerStateConflict, match="cancelled"):
+        state.persist_completed(request, _result(request))

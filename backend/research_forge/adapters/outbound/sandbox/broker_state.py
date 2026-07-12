@@ -5,9 +5,15 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from contextlib import contextmanager
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Mapping
+from typing import Iterator, Mapping
+
+try:  # The formal broker runtime is Linux; local Windows tests retain the same file layout without flock.
+    import fcntl
+except ImportError:  # pragma: no cover - Windows has no fcntl module.
+    fcntl = None  # type: ignore[assignment]
 
 from research_forge.application.dto.sandbox import SandboxResult, SandboxRunRequest
 from research_forge.domain.errors import PathSafetyViolation
@@ -87,6 +93,35 @@ class BrokerStateStore:
             raise BrokerStateConflict("Broker request payload does not match the caller request.")
         return self._read_result(directory, result)
 
+    def mark_cancelled(self, operation_id: str) -> None:
+        """Durably win the terminal-state race unless a completed result already exists."""
+        directory = self._directory(operation_id)
+        directory.mkdir(mode=0o750, parents=True, exist_ok=True)
+        self._assert_safe_directory(directory)
+        with _terminal_lock(directory):
+            if self._safe_child(directory, "result.json").exists():
+                return
+            marker = self._safe_child(directory, "cancelled.json")
+            payload = {"schema_version": STATE_SCHEMA_VERSION, "operation_id": operation_id}
+            if marker.exists():
+                if _read_json(marker) != payload:
+                    raise BrokerStateConflict("Broker cancellation metadata is invalid.")
+                return
+            _atomic_write(marker, _canonical(payload))
+
+    def is_cancelled(self, operation_id: str) -> bool:
+        directory = self._directory(operation_id)
+        if not directory.exists():
+            return False
+        self._assert_safe_directory(directory)
+        marker = self._safe_child(directory, "cancelled.json")
+        if not marker.exists():
+            return False
+        payload = _read_json(marker)
+        if payload != {"schema_version": STATE_SCHEMA_VERSION, "operation_id": operation_id}:
+            raise BrokerStateConflict("Broker cancellation metadata is invalid.")
+        return True
+
     def persist_completed(self, request: SandboxRunRequest, result: SandboxResult) -> None:
         if result.operation_id != request.operation_id:
             raise BrokerStateConflict("Sandbox result operation ID does not match the persisted request.")
@@ -121,7 +156,15 @@ class BrokerStateStore:
             "stderr": {"sha256": _sha256(result.stderr), "size_bytes": len(result.stderr)},
             "outputs": files,
         }
-        _atomic_write(directory / "result.json", _canonical(metadata))
+        with _terminal_lock(directory):
+            if self.is_cancelled(request.operation_id):
+                raise BrokerStateConflict("Sandbox operation was cancelled before its result could be persisted.")
+            existing = self.load_completed(request.operation_id, request)
+            if existing is not None:
+                if existing != result:
+                    raise BrokerStateConflict("Completed sandbox result conflicts with durable broker state.")
+                return
+            _atomic_write(directory / "result.json", _canonical(metadata))
 
     def _read_result(self, directory: Path, metadata: Mapping[str, object]) -> SandboxResult:
         stdout = _verified_bytes(self._safe_child(directory, "stdout.bin"), _mapping(metadata.get("stdout"), "stdout"))
@@ -256,6 +299,20 @@ def _fsync_directory(directory: Path) -> None:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+
+
+@contextmanager
+def _terminal_lock(directory: Path) -> Iterator[None]:
+    """Serialize cancellation and completion across broker processes on formal Linux hosts."""
+    lock_path = directory / ".terminal.lock"
+    with lock_path.open("a+b") as handle:
+        if fcntl is not None:
+            getattr(fcntl, "flock")(handle.fileno(), getattr(fcntl, "LOCK_EX"))
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                getattr(fcntl, "flock")(handle.fileno(), getattr(fcntl, "LOCK_UN"))
 
 
 def _request_payload(request: SandboxRunRequest) -> dict[str, object]:
