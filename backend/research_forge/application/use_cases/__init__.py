@@ -64,6 +64,7 @@ from research_forge.application.use_cases.get_mission_status import (
     MissionStatusView,
     TaskStatusView,
 )
+from research_forge.application.use_cases.reconcile_stale_operations import ReconcileStaleOperations, ReconciliationView
 
 __all__ = [
     "AttemptNotFound",
@@ -108,4 +109,6 @@ __all__ = [
     "TaskStatusView",
     "AttemptStatusView",
     "WorkspaceView",
+    "ReconcileStaleOperations",
+    "ReconciliationView",
 ]

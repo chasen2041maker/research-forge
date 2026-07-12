@@ -43,6 +43,7 @@ from research_forge.application.use_cases import (
     PersistArtifact,
     PublishPendingOutbox,
     RequestMissionCancellation,
+    ReconcileStaleOperations,
     RenewAttemptLease,
     ResolveApproval,
     RunBaselineAttempt,
@@ -129,6 +130,7 @@ class ProductionVs001Runtime:
     app: FastAPI
     baseline_worker: BaselineWorker
     publish_outbox: PublishPendingOutbox
+    reconcile_stale_operations: ReconcileStaleOperations
     queue: RedisTaskQueue
     unit_of_work: SqlAlchemyUnitOfWork
     database_engine: Engine
@@ -138,6 +140,10 @@ class ProductionVs001Runtime:
     def publish_once(self) -> int:
         """Publish committed Outbox events and return the number of deliveries attempted."""
         return len(self.publish_outbox.execute().published_event_ids)
+
+    def reconcile_once(self) -> int:
+        """Durably request redelivery for stale cross-store operations."""
+        return len(self.reconcile_stale_operations.execute().operation_ids)
 
     def process_one(self, *, owner: str) -> bool:
         """Process and acknowledge one baseline Attempt only after durable completion.
@@ -281,6 +287,12 @@ def build_production_vs001_runtime(
         app=create_app(controller=controller, local_token=settings.api_token, cors_origins=settings.cors_origins),
         baseline_worker=baseline_worker,
         publish_outbox=PublishPendingOutbox(unit_of_work=unit_of_work, task_queue=queue, clock=clock),
+        reconcile_stale_operations=ReconcileStaleOperations(
+            unit_of_work=unit_of_work,
+            clock=clock,
+            id_generator=identifiers,
+            stale_after=timedelta(minutes=2),
+        ),
         queue=queue,
         unit_of_work=unit_of_work,
         database_engine=engine,

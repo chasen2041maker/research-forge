@@ -9,7 +9,7 @@ from typing import Self
 
 from research_forge.domain.artifact import ArtifactRegistration
 from research_forge.domain.approval import Approval
-from research_forge.domain.execution import Operation
+from research_forge.domain.execution import Operation, OperationStatus
 from research_forge.domain.evidence import Claim, EvidenceLink, MetricRecord
 from research_forge.domain.mission import Attempt, AuditEvent, Mission, OutboxEvent, Task
 
@@ -157,6 +157,17 @@ class InMemoryUnitOfWork:
         state = self._read()
         operation_id = state.operation_keys.get(idempotency_key)
         return state.operations.get(operation_id) if operation_id is not None else None
+
+    def get_stale_operations(
+        self, *, updated_before: datetime, statuses: tuple[OperationStatus, ...], limit: int
+    ) -> tuple[Operation, ...]:
+        if limit <= 0:
+            raise ValueError("Stale-operation limit must be positive.")
+        return tuple(
+            operation
+            for operation in sorted(self._read().operations.values(), key=lambda item: (item.updated_at, item.operation_id))
+            if operation.status in statuses and operation.updated_at <= updated_before
+        )[:limit]
 
     def get_artifact_by_operation_id(self, operation_id: str) -> ArtifactRegistration | None:
         return self._read().artifacts_by_operation.get(operation_id)

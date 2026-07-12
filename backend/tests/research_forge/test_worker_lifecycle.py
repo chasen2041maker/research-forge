@@ -9,6 +9,7 @@ import pytest
 from research_forge.adapters.outbound.persistence import InMemoryUnitOfWork
 from research_forge.application.use_cases import (
     ClaimBaselineAttempt,
+    ReconcileStaleOperations,
     RenewAttemptLease,
     RequestMissionCancellation,
 )
@@ -153,6 +154,41 @@ def test_operation_succeeds_idempotently_but_rejects_conflicting_result() -> Non
     assert operation.status is OperationStatus.SUCCEEDED
     with pytest.raises(OperationConflict, match="conflicts"):
         operation.succeed(external_result_ref="sha256:" + "c" * 64, now=clock.now())
+
+
+def test_reconciler_requeues_each_stale_operation_once_through_the_outbox() -> None:
+    clock = _MutableClock()
+    uow = InMemoryUnitOfWork()
+    _seed_attempt(uow, clock)
+    operation = Operation(
+        operation_id="operation-1",
+        idempotency_key="attempt-1:sandbox",
+        attempt_id=AttemptId("attempt-1"),
+        operation_type=OperationType.SANDBOX_RUN,
+        input_hash="a" * 64,
+        lease_epoch=1,
+        target_ref_or_path="worktree",
+        created_at=clock.now(),
+        updated_at=clock.now(),
+    )
+    with uow:
+        uow.add_operation(operation)
+        uow.commit()
+    clock.advance(61)
+    reconciler = ReconcileStaleOperations(
+        unit_of_work=uow,
+        clock=clock,
+        id_generator=_Ids(),
+        stale_after=timedelta(seconds=60),
+    )
+
+    first = reconciler.execute()
+    second = reconciler.execute()
+
+    assert first.operation_ids == ("operation-1",)
+    assert second.operation_ids == ()
+    assert uow.outbox[-1].topic == "baseline_attempt.ready"
+    assert uow.outbox[-1].payload["attempt_id"] == "attempt-1"
 
 
 def test_mission_state_machine_refuses_skipped_completion() -> None:

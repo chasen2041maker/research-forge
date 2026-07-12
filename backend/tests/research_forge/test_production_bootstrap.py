@@ -186,6 +186,7 @@ def test_production_runtime_acknowledges_a_durably_cancelled_attempt(tmp_path: P
         app=FastAPI(),
         baseline_worker=_CancellationWorker(),
         publish_outbox=object(),
+        reconcile_stale_operations=object(),
         queue=queue,
         unit_of_work=_CancellationUnitOfWork(),
         database_engine=create_engine(f"sqlite+pysqlite:///{tmp_path / 'forge.db'}"),

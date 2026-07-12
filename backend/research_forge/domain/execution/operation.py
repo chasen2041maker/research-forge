@@ -67,3 +67,9 @@ class Operation:
         self.status = OperationStatus.MANUAL_RECOVERY if manual_recovery else OperationStatus.FAILED
         self.error_code = error_code
         self.updated_at = now
+
+    def request_recovery(self, now: datetime) -> None:
+        """Record a bounded redelivery request without changing the original effect identity."""
+        if self.status not in {OperationStatus.PREPARED, OperationStatus.EXECUTING}:
+            raise OperationConflict(f"Operation {self.operation_id} cannot be reconciled from {self.status}.")
+        self.updated_at = now

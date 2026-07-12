@@ -32,7 +32,7 @@ LOGGER = logging.getLogger("research_forge.runtime")
 def main(argv: Sequence[str] | None = None) -> int:
     """Run one explicitly selected process role and return a shell-compatible status code."""
     parser = argparse.ArgumentParser(description="Research Forge VS-001 production process roles")
-    parser.add_argument("role", choices=("api", "publisher", "worker", "healthcheck"))
+    parser.add_argument("role", choices=("api", "publisher", "worker", "reconciler", "healthcheck"))
     parser.add_argument("--poll-seconds", type=float, default=1.0)
     arguments = parser.parse_args(argv)
     if arguments.poll_seconds <= 0:
@@ -51,6 +51,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_publisher(runtime, arguments.poll_seconds)
         if arguments.role == "worker":
             return _run_worker(runtime, arguments.poll_seconds)
+        if arguments.role == "reconciler":
+            return _run_reconciler(runtime, arguments.poll_seconds)
         runtime.check_dependencies(check_broker=True)
         LOGGER.info("PostgreSQL, Redis, and the sandbox broker are reachable.")
         return 0
@@ -89,6 +91,15 @@ def _run_worker(runtime: ProductionVs001Runtime, poll_seconds: float) -> int:
         else:
             if not processed:
                 time.sleep(poll_seconds)
+
+
+def _run_reconciler(runtime: ProductionVs001Runtime, poll_seconds: float) -> int:
+    while True:
+        requested = runtime.reconcile_once()
+        if requested:
+            LOGGER.info("Requested recovery for %s stale operation(s).", requested)
+            continue
+        time.sleep(poll_seconds)
 
 
 if __name__ == "__main__":  # pragma: no cover - exercised through the deployment entry point

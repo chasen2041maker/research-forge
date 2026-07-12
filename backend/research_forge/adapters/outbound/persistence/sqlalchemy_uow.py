@@ -218,6 +218,19 @@ class SqlAlchemyUnitOfWork:
         self._operations[operation.operation_id] = operation
         return operation
 
+    def get_stale_operations(
+        self, *, updated_before: datetime, statuses: tuple[OperationStatus, ...], limit: int
+    ) -> tuple[Operation, ...]:
+        if limit <= 0:
+            raise ValueError("Stale-operation limit must be positive.")
+        rows = self._require_session().scalars(
+            select(OperationRow)
+            .where(OperationRow.updated_at <= updated_before, OperationRow.status.in_([str(status) for status in statuses]))
+            .order_by(OperationRow.updated_at, OperationRow.operation_id)
+            .limit(limit)
+        )
+        return tuple(self._operations.setdefault(row.operation_id, self._operation_from_row(row)) for row in rows)
+
     def get_artifact_by_operation_id(self, operation_id: str) -> ArtifactRegistration | None:
         cached = self._artifacts.get(operation_id)
         if cached is not None:

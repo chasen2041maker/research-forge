@@ -6,7 +6,7 @@ from typing import Protocol, Self
 
 from research_forge.domain.artifact import ArtifactRegistration
 from research_forge.domain.approval import Approval
-from research_forge.domain.execution import Operation
+from research_forge.domain.execution import Operation, OperationStatus
 from research_forge.domain.evidence import Claim, EvidenceLink, MetricRecord
 from datetime import datetime
 
@@ -60,6 +60,10 @@ class UnitOfWork(Protocol):
     def get_attempts_for_task(self, task_id: str) -> tuple[Attempt, ...]: ...
 
     def get_operation_by_idempotency_key(self, idempotency_key: str) -> Operation | None: ...
+
+    def get_stale_operations(
+        self, *, updated_before: datetime, statuses: tuple[OperationStatus, ...], limit: int
+    ) -> tuple[Operation, ...]: ...
 
     def get_artifact_by_operation_id(self, operation_id: str) -> ArtifactRegistration | None: ...
 
