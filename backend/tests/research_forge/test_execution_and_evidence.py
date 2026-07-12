@@ -7,7 +7,6 @@ from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from subprocess import run
-from tarfile import TarFile
 from zipfile import ZipFile
 
 import pytest
@@ -235,10 +234,13 @@ def test_no_llm_baseline_flow_creates_verified_metric_evidence(tmp_path: Path) -
             "artifacts/metrics.json",
         }.issubset(archive.namelist())
         source_archive = archive.read("source.tar")
-    replay_directory = tmp_path / "bundle-replay"
-    replay_directory.mkdir()
-    with TarFile(fileobj=BytesIO(source_archive)) as archive:
-        archive.extractall(replay_directory, filter="data")
+        safe_extract_script = archive.read("safe_extract.py")
+    bundle_directory = tmp_path / "bundle-content"
+    bundle_directory.mkdir()
+    (bundle_directory / "source.tar").write_bytes(source_archive)
+    (bundle_directory / "safe_extract.py").write_bytes(safe_extract_script)
+    replay_directory = bundle_directory / "repository"
+    run(["python", "safe_extract.py", "source.tar", "repository"], cwd=bundle_directory, check=True)
     run(["python", "evaluate.py", "--output", "metrics.json"], cwd=replay_directory, check=True)
     assert json.loads((replay_directory / "metrics.json").read_text(encoding="utf-8"))["accuracy"] == 0.8
 

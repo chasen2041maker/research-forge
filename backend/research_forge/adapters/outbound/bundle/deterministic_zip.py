@@ -23,6 +23,7 @@ class DeterministicZipBundleBuilder:
             "mission-spec.json": material.normalized_spec_json.encode("utf-8"),
             "report.md": material.report_markdown.encode("utf-8"),
             "reproduce.sh": material.reproduce_script.encode("utf-8"),
+            "safe_extract.py": material.safe_extract_script.encode("utf-8"),
             "source.tar": material.source_archive,
         }
         output = BytesIO()

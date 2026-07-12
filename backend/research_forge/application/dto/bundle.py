@@ -15,6 +15,7 @@ class BundleBuildInput:
     evidence_jsonl: str
     report_markdown: str
     reproduce_script: str
+    safe_extract_script: str
     metric_payload: bytes
     log_payload: bytes
     source_archive: bytes

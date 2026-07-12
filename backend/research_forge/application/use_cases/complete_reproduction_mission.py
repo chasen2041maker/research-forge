@@ -231,6 +231,7 @@ class CompleteReproductionMission:
             evidence_jsonl=facts.evidence_jsonl,
             report_markdown=report,
             reproduce_script=reproduce_script,
+            safe_extract_script=self._safe_extract_script(),
             metric_payload=self._artifact_store.read_verified(facts.metric_artifact),
             log_payload=self._artifact_store.read_verified(facts.log_artifact),
             source_archive=source_archive,
@@ -243,10 +244,50 @@ class CompleteReproductionMission:
             "set -eu\n"
             "rm -rf repository\n"
             "mkdir repository\n"
-            "tar -xf source.tar -C repository\n"
+            "python safe_extract.py source.tar repository\n"
             "cd repository\n"
             f"exec {shlex.join(command)}\n"
         )
+
+    @staticmethod
+    def _safe_extract_script() -> str:
+        return """import shutil
+import sys
+import tarfile
+from pathlib import Path
+
+MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
+
+archive_path = Path(sys.argv[1]).resolve()
+destination = Path(sys.argv[2]).resolve()
+destination.mkdir(parents=True, exist_ok=True)
+total = 0
+with tarfile.open(archive_path, "r:*") as archive:
+    members = archive.getmembers()
+    for member in members:
+        target = (destination / member.name).resolve()
+        try:
+            target.relative_to(destination)
+        except ValueError as exc:
+            raise SystemExit(f"unsafe archive path: {member.name}") from exc
+        if member.issym() or member.islnk() or member.isdev():
+            raise SystemExit(f"unsafe archive member: {member.name}")
+        if member.isfile():
+            total += member.size
+            if total > MAX_ARCHIVE_BYTES:
+                raise SystemExit("archive exceeds extraction size limit")
+    for member in members:
+        target = (destination / member.name).resolve()
+        if member.isdir():
+            target.mkdir(parents=True, exist_ok=True)
+        elif member.isfile():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            source = archive.extractfile(member)
+            if source is None:
+                raise SystemExit(f"missing archive payload: {member.name}")
+            with source, target.open("wb") as output:
+                shutil.copyfileobj(source, output)
+"""
 
     def _complete(
         self,
