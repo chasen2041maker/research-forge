@@ -52,6 +52,7 @@ Mission -> Task -> lease-owned Attempt -> Operation Ledger
 - One bounded repair flow: proposal -> persisted approval -> fresh child Attempt -> candidate commit -> candidate run -> evidence-gated Bundle.
 - FastAPI local-token surface for Mission status, cancellation, Bundle download, and approval decisions; the Next.js Forge console reads that state without owning it.
 - SQLAlchemy source-of-truth adapter, static Alembic revisions, and CI migration upgrade/downgrade verification.
+- A frozen 16-case release manifest with repeated recovery/E2E cases, append-only JSON reports, and a retained GitHub Actions artifact.
 
 ## 10-second proof
 
@@ -61,6 +62,7 @@ From the repository root:
 python -m pip install alembic fastapi httpx jsonschema pytest ruff sqlalchemy
 python -m pytest backend/tests/research_forge -q
 python -m ruff check backend/research_forge backend/tests/research_forge
+python backend/scripts/run_frozen_research_forge_eval.py
 ```
 
 Build the Forge console:
@@ -71,7 +73,7 @@ npm install
 npm run build
 ```
 
-The GitHub Actions workflow runs the non-Docker suite, architecture checks, Alembic upgrade/downgrade contract, and a separate Linux Docker end-to-end gate on every push to `main`.
+The GitHub Actions workflow runs the non-Docker suite, architecture checks, Alembic upgrade/downgrade contract, a separate Linux Docker end-to-end gate, and the 16-case frozen evaluation manifest on every push to `main`. The evaluation job retains a JSON artifact containing all Case outcomes and the Manifest SHA-256.
 
 ## Core concepts
 
@@ -169,7 +171,6 @@ docs/                     specification, ADRs, architecture, and review material
 Implemented core work is intentionally focused on reproducibility and recoverability. Planned work should build on these invariants rather than bypass them:
 
 - PostgreSQL / queue / broker production deployment composition and operational runbooks.
-- Expanded frozen evaluation corpus and release scorecard.
 - A narrowly-capable LLM `DecisionEngine` adapter, only after its policy and supply-chain gates are in place.
 - Documentation and demo fixtures for a clean-machine local run.
 
