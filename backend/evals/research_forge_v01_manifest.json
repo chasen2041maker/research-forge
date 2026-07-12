@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "suite_id": "research-forge-v0.1-frozen",
+  "cases": [
+    {"id": "spec-freeze", "category": "runtime", "target": "backend/tests/research_forge/test_reproduction_spec.py::test_validator_canonicalizes_and_hashes_the_frozen_contract", "repeat": 1},
+    {"id": "state-outbox-atomicity", "category": "runtime", "target": "backend/tests/research_forge/test_reproduction_spec.py::test_create_mission_writes_state_audit_and_outbox_in_one_unit_of_work", "repeat": 1},
+    {"id": "lease-stale-worker", "category": "runtime", "target": "backend/tests/research_forge/test_worker_lifecycle.py::test_expired_lease_can_be_reclaimed_but_old_worker_cannot_heartbeat", "repeat": 3},
+    {"id": "operation-idempotency", "category": "runtime", "target": "backend/tests/research_forge/test_worker_lifecycle.py::test_operation_succeeds_idempotently_but_rejects_conflicting_result", "repeat": 1},
+    {"id": "baseline-evidence-e2e", "category": "evidence", "target": "backend/tests/research_forge/test_execution_and_evidence.py::test_no_llm_baseline_flow_creates_verified_metric_evidence", "repeat": 3},
+    {"id": "queue-redelivery", "category": "runtime", "target": "backend/tests/research_forge/test_execution_and_evidence.py::test_queue_redelivery_after_db_completion_reuses_the_existing_bundle", "repeat": 3},
+    {"id": "worktree-isolation", "category": "git-artifact", "target": "backend/tests/research_forge/test_workspace_and_artifacts.py::test_worktree_manager_creates_a_clean_detached_pinned_baseline", "repeat": 1},
+    {"id": "candidate-budget", "category": "git-artifact", "target": "backend/tests/research_forge/test_workspace_and_artifacts.py::test_candidate_worktree_commits_only_a_budgeted_allowlisted_patch_once", "repeat": 1},
+    {"id": "cas-tamper", "category": "git-artifact", "target": "backend/tests/research_forge/test_workspace_and_artifacts.py::test_local_cas_deduplicates_and_detects_tampering", "repeat": 1},
+    {"id": "sandbox-recovery", "category": "runtime", "target": "backend/tests/research_forge/test_sandbox_boundary.py::test_sandbox_completion_before_db_finalize_recovers_one_operation", "repeat": 1},
+    {"id": "offline-docker-policy", "category": "security-approval", "target": "backend/tests/research_forge/test_sandbox_boundary.py::test_docker_command_applies_offline_hardened_policy_without_docker_socket", "repeat": 1},
+    {"id": "secret-canary", "category": "security-approval", "target": "backend/tests/research_forge/test_security_hardening.py::test_development_runner_does_not_leak_an_unrelated_host_secret", "repeat": 1},
+    {"id": "archive-path-safety", "category": "security-approval", "target": "backend/tests/research_forge/test_security_hardening.py::test_bundle_safe_extractor_rejects_archive_path_escape", "repeat": 1},
+    {"id": "approval-resume-repair", "category": "security-approval", "target": "backend/tests/research_forge/test_repair_flow.py::test_repair_runs_exactly_one_budgeted_candidate_after_a_failed_baseline", "repeat": 3},
+    {"id": "sql-source-of-truth", "category": "runtime", "target": "backend/tests/research_forge/test_sqlalchemy_persistence.py::test_sqlalchemy_uow_persists_state_audit_and_outbox_atomically", "repeat": 1},
+    {"id": "formal-docker-baseline", "category": "git-artifact", "target": "backend/tests/research_forge/test_docker_e2e.py::test_docker_broker_runs_the_complete_offline_baseline_flow", "repeat": 1}
+  ]
+}
