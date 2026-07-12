@@ -56,7 +56,7 @@ Mission -> Task -> lease-owned Attempt -> Operation Ledger
 - One bounded repair flow: proposal -> persisted approval -> fresh child Attempt -> candidate commit -> candidate run -> evidence-gated Bundle.
 - FastAPI local-token surface for Mission status, cancellation, Bundle download, and approval decisions; the Next.js Forge console reads that state without owning it.
 - SQLAlchemy source-of-truth adapter, static Alembic revisions, and CI migration upgrade/downgrade verification.
-- A frozen 16-case release manifest with repeated recovery/E2E cases, append-only JSON reports, and a retained GitHub Actions artifact.
+- A frozen 16-case release manifest with the baseline end-to-end proof repeated 10 times, repeated recovery cases, append-only JSON reports, and a retained GitHub Actions artifact.
 
 ## 10-second proof
 

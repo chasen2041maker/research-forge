@@ -6,7 +6,7 @@
     {"id": "state-outbox-atomicity", "category": "runtime", "target": "backend/tests/research_forge/test_reproduction_spec.py::test_create_mission_writes_state_audit_and_outbox_in_one_unit_of_work", "repeat": 1},
     {"id": "lease-stale-worker", "category": "runtime", "target": "backend/tests/research_forge/test_worker_lifecycle.py::test_expired_lease_can_be_reclaimed_but_old_worker_cannot_heartbeat", "repeat": 3},
     {"id": "operation-idempotency", "category": "runtime", "target": "backend/tests/research_forge/test_worker_lifecycle.py::test_operation_succeeds_idempotently_but_rejects_conflicting_result", "repeat": 1},
-    {"id": "baseline-evidence-e2e", "category": "evidence", "target": "backend/tests/research_forge/test_execution_and_evidence.py::test_no_llm_baseline_flow_creates_verified_metric_evidence", "repeat": 3},
+    {"id": "baseline-evidence-e2e", "category": "evidence", "target": "backend/tests/research_forge/test_execution_and_evidence.py::test_no_llm_baseline_flow_creates_verified_metric_evidence", "repeat": 10},
     {"id": "queue-redelivery", "category": "runtime", "target": "backend/tests/research_forge/test_execution_and_evidence.py::test_queue_redelivery_after_db_completion_reuses_the_existing_bundle", "repeat": 3},
     {"id": "worktree-isolation", "category": "git-artifact", "target": "backend/tests/research_forge/test_workspace_and_artifacts.py::test_worktree_manager_creates_a_clean_detached_pinned_baseline", "repeat": 1},
     {"id": "candidate-budget", "category": "git-artifact", "target": "backend/tests/research_forge/test_workspace_and_artifacts.py::test_candidate_worktree_commits_only_a_budgeted_allowlisted_patch_once", "repeat": 1},

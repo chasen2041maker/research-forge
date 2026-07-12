@@ -18,3 +18,4 @@ def test_frozen_eval_manifest_has_sixteen_unique_executable_cases() -> None:
     assert {case["category"] for case in cases} == {"runtime", "security-approval", "evidence", "git-artifact"}
     assert all(case["repeat"] >= 1 and "::test_" in case["target"] for case in cases)
     assert all((Path(__file__).resolve().parents[3] / case["target"].split("::", 1)[0]).is_file() for case in cases)
+    assert next(case for case in cases if case["id"] == "baseline-evidence-e2e")["repeat"] == 10
