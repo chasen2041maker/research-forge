@@ -6,7 +6,11 @@ import logging
 import os
 import platform
 
-from research_forge.adapters.outbound.sandbox import DockerSandboxBroker, UnixSandboxBrokerServer
+from research_forge.adapters.outbound.sandbox import (
+    DockerSandboxBroker,
+    DurableCompletedResultStore,
+    UnixSandboxBrokerServer,
+)
 from research_forge.bootstrap.observability import configure_json_logging
 from research_forge.bootstrap.production import ProductionConfigurationError, ProductionVs001Settings
 
@@ -27,6 +31,7 @@ def main() -> int:
             executor=DockerSandboxBroker(
                 workspace_root=settings.workspace_root,
                 allowed_images=settings.allowed_images,
+                completed_result_store=DurableCompletedResultStore(root_path=settings.broker_state_root),
             ),
             socket_group=os.getenv("RF_BROKER_SOCKET_GROUP") or None,
         )

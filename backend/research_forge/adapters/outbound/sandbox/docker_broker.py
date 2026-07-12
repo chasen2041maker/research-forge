@@ -10,6 +10,10 @@ from subprocess import PIPE, Popen, TimeoutExpired
 from threading import RLock
 from typing import Mapping
 
+from research_forge.adapters.outbound.sandbox.completed_result_store import (
+    CompletedResultStoreError,
+    DurableCompletedResultStore,
+)
 from research_forge.application.dto.sandbox import NetworkPolicy, SandboxResult, SandboxRunRequest
 from research_forge.domain.errors import PathSafetyViolation
 
@@ -31,6 +35,7 @@ class DockerSandboxBroker:
         cpu_limit: str = "1.0",
         pid_limit: int = 128,
         max_completed_results: int = 64,
+        completed_result_store: DurableCompletedResultStore | None = None,
     ) -> None:
         self._workspace_root = workspace_root.resolve()
         self._allowed_images = dict(allowed_images)
@@ -41,6 +46,7 @@ class DockerSandboxBroker:
         if max_completed_results <= 0:
             raise ValueError("Completed sandbox result capacity must be positive.")
         self._max_completed_results = max_completed_results
+        self._completed_result_store = completed_result_store
         self._processes: dict[str, Popen[bytes]] = {}
         self._completed: OrderedDict[str, SandboxResult] = OrderedDict()
         self._inflight: dict[str, Future[SandboxResult]] = {}
@@ -109,7 +115,16 @@ class DockerSandboxBroker:
             result = self._completed.get(operation_id)
             if result is not None:
                 self._completed.move_to_end(operation_id)
-            return result
+                return result
+        if self._completed_result_store is None:
+            return None
+        try:
+            recovered = self._completed_result_store.get(operation_id)
+        except CompletedResultStoreError as exc:
+            raise SandboxUnavailable("Broker completion recovery record is unsafe or corrupt.") from exc
+        if recovered is not None:
+            self._remember_in_memory(recovered)
+        return recovered
 
     def cancel(self, operation_id: str) -> None:
         with self._process_lock:
@@ -118,6 +133,14 @@ class DockerSandboxBroker:
             process.terminate()
 
     def _remember_completed(self, result: SandboxResult) -> None:
+        if self._completed_result_store is not None:
+            try:
+                self._completed_result_store.put(result)
+            except CompletedResultStoreError as exc:
+                raise SandboxUnavailable("Broker completion record could not be persisted safely.") from exc
+        self._remember_in_memory(result)
+
+    def _remember_in_memory(self, result: SandboxResult) -> None:
         with self._process_lock:
             self._completed[result.operation_id] = result
             self._completed.move_to_end(result.operation_id)

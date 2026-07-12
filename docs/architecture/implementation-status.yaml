@@ -20,9 +20,9 @@ capabilities:
     implemented: Mission, Task, Attempt, Operation, and Approval use persisted compare-and-swap versions; Attempt also has leases, heartbeats, and cancellation paths.
     absent: Cross-process execution recovery is still bounded by the queue and broker limitations below.
   sandbox_broker_recovery:
-    status: partial
-    implemented: Duplicate completion can be recovered while the same broker process is alive.
-    absent: Broker completion state is in-process memory and is lost when that process restarts.
+    status: implemented
+    evidence: backend/tests/research_forge/test_completed_result_store.py
+    implemented: The broker supplements its bounded in-process cache with one atomically persisted, checksummed completion record per operation and reloads it after restart.
   reproduction_spec_v1:
     status: implemented
     evidence: docs/contracts/reproduction-spec-v1.schema.json

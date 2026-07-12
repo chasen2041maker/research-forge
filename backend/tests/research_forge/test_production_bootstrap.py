@@ -111,6 +111,7 @@ def test_production_composition_exposes_health_and_checks_dependencies(tmp_path:
         workspace_root=tmp_path / "workspaces",
         artifact_root=tmp_path / "cas",
         broker_socket_path=tmp_path / "broker" / "sandbox.sock",
+        broker_state_root=tmp_path / "broker" / "completed-results",
         paper_root=tmp_path / "papers",
         paper_artifacts={"paper-toy-001": "a" * 64},
         paper_artifact_paths={},
@@ -157,6 +158,7 @@ def test_production_settings_loads_only_explicit_environment_and_policy_files(tm
         "RF_ARTIFACT_ROOT": str(tmp_path / "cas"),
         "RF_PAPER_ROOT": str(paper_root),
         "RF_BROKER_SOCKET_PATH": str(tmp_path / "broker" / "sandbox.sock"),
+        "RF_BROKER_STATE_ROOT": str(tmp_path / "broker" / "completed-results"),
         "RF_CORS_ORIGINS": "https://forge.example.test, https://review.example.test",
     }
     settings = ProductionVs001Settings.from_environment(environment)
@@ -164,6 +166,7 @@ def test_production_settings_loads_only_explicit_environment_and_policy_files(tm
     assert settings.paper_artifacts == {"paper-toy-001": paper_sha256}
     assert settings.paper_artifact_paths == {"paper-toy-001": paper_root / "toy-paper.pdf"}
     assert settings.broker_socket_path == (tmp_path / "broker" / "sandbox.sock").resolve()
+    assert settings.broker_state_root == (tmp_path / "broker" / "completed-results").resolve()
     assert settings.cors_origins == ("https://forge.example.test", "https://review.example.test")
 
     policy_path.write_text(
