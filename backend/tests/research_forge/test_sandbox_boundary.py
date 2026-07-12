@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+import json
 from pathlib import Path
 
+import pytest
+
+from research_forge.adapters.outbound.persistence import InMemoryUnitOfWork
 from research_forge.adapters.outbound.sandbox import DeterministicFakeSandbox, DockerSandboxBroker
 from research_forge.application.dto import NetworkPolicy, SandboxResult, SandboxRunRequest
+from research_forge.application.use_cases import ClaimBaselineAttempt, RunBaselineAttempt
+from research_forge.domain.execution import OperationStatus
+from research_forge.domain.mission import Attempt, AttemptId, Mission, MissionId, Task, TaskId, TaskType
 
 
 def _request(worktree_path: str = "/workspace/mission-1") -> SandboxRunRequest:
@@ -20,6 +28,20 @@ def _request(worktree_path: str = "/workspace/mission-1") -> SandboxRunRequest:
         network_policy=NetworkPolicy.OFFLINE,
         expected_output_paths=("metrics.json",),
     )
+
+
+class _Clock:
+    def now(self) -> datetime:
+        return datetime(2026, 7, 12, tzinfo=timezone.utc)
+
+
+class _Ids:
+    def __init__(self) -> None:
+        self.value = 0
+
+    def new(self, kind: str) -> str:
+        self.value += 1
+        return f"{kind}-{self.value}"
 
 
 def test_deterministic_fake_reuses_a_completed_operation() -> None:
@@ -64,3 +86,82 @@ def test_docker_command_applies_offline_hardened_policy_without_docker_socket(tm
     ]
     assert "docker.sock" not in " ".join(command)
     assert command[-4:] == ["python", "evaluate.py", "--output", "metrics.json"]
+
+
+def test_sandbox_completion_before_db_finalize_recovers_one_operation() -> None:
+    clock = _Clock()
+    uow = InMemoryUnitOfWork()
+    spec = {
+        "execution": {
+            "image_digest": "sha256:" + "a" * 64,
+            "run_argv": ["python", "evaluate.py", "--output", "metrics.json"],
+            "working_directory": ".",
+            "timeout_seconds": 120,
+            "network_policy": "offline",
+        },
+        "metric": {"artifact_path": "metrics.json"},
+        "budget": {"max_log_bytes": 1024},
+    }
+    mission = Mission.create(
+        mission_id=MissionId("mission-1"),
+        spec_sha256="a" * 64,
+        normalized_spec_json=json.dumps(spec),
+        created_at=clock.now(),
+    )
+    mission.mark_ready()
+    task = Task(TaskId("task-1"), mission.mission_id, TaskType.BASELINE_REPRODUCTION, clock.now())
+    attempt = Attempt(AttemptId("attempt-1"), task.task_id, 1, 0, clock.now())
+    with uow:
+        uow.add_mission(mission)
+        uow.add_task(task)
+        uow.add_attempt(attempt)
+        uow.commit()
+    lease = ClaimBaselineAttempt(unit_of_work=uow, clock=clock, lease_duration=timedelta(seconds=30)).execute(
+        attempt_id="attempt-1", owner="worker-a"
+    )
+    calls = 0
+
+    def result_factory(request: SandboxRunRequest) -> SandboxResult:
+        nonlocal calls
+        calls += 1
+        return SandboxResult(
+            operation_id=request.operation_id,
+            execution_id="execution-1",
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            output_files={"metrics.json": b'{"accuracy": 0.8}'},
+            environment_digest=request.image_digest,
+            dataset_sha256="0" * 64,
+        )
+
+    runner = RunBaselineAttempt(
+        unit_of_work=uow,
+        sandbox_executor=DeterministicFakeSandbox(result_factory),
+        clock=clock,
+        id_generator=_Ids(),
+    )
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        runner.execute(
+            attempt_id="attempt-1",
+            owner=lease.owner,
+            epoch=lease.epoch,
+            expected_version=lease.version,
+            idempotency_key="attempt-1:sandbox",
+            worktree_path="/workspace/mission-1",
+            after_execution=lambda: (_ for _ in ()).throw(RuntimeError("simulated crash")),
+        )
+
+    operation = uow.get_operation_by_idempotency_key("attempt-1:sandbox")
+    assert operation is not None and operation.status is OperationStatus.EXECUTING
+    recovered = runner.execute(
+        attempt_id="attempt-1",
+        owner=lease.owner,
+        epoch=lease.epoch,
+        expected_version=lease.version,
+        idempotency_key="attempt-1:sandbox",
+        worktree_path="/workspace/mission-1",
+    )
+    assert recovered.sandbox_result.execution_id == "execution-1"
+    assert calls == 1
+    assert uow.get_operation_by_idempotency_key("attempt-1:sandbox").status is OperationStatus.SUCCEEDED

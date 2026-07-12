@@ -31,6 +31,7 @@ from research_forge.application.use_cases.complete_reproduction_mission import (
     BundleView,
     CompleteReproductionMission,
 )
+from research_forge.application.use_cases.get_baseline_outcome import ExistingBundleView, GetBaselineOutcome
 
 __all__ = [
     "AttemptNotFound",
@@ -42,9 +43,11 @@ __all__ = [
     "CompleteReproductionMission",
     "CreateReproductionMission",
     "EnsureBaselineWorkspace",
+    "ExistingBundleView",
     "FinalizeBaselineExecution",
     "FinalizedBaselineView",
     "HeartbeatView",
+    "GetBaselineOutcome",
     "LeaseView",
     "MissionView",
     "PersistArtifact",

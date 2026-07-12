@@ -2,5 +2,6 @@
 
 from research_forge.adapters.outbound.sandbox.deterministic_fake import DeterministicFakeSandbox
 from research_forge.adapters.outbound.sandbox.docker_broker import DockerSandboxBroker
+from research_forge.adapters.outbound.sandbox.local_development import LocalDevelopmentSandbox
 
-__all__ = ["DeterministicFakeSandbox", "DockerSandboxBroker"]
+__all__ = ["DeterministicFakeSandbox", "DockerSandboxBroker", "LocalDevelopmentSandbox"]

@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from subprocess import run
+from tarfile import TarFile
 from zipfile import ZipFile
 
 import pytest
@@ -14,9 +15,10 @@ import pytest
 from research_forge.adapters.outbound.artifacts import LocalContentAddressedStore
 from research_forge.adapters.outbound.git import GitWorktreeManager
 from research_forge.adapters.outbound.persistence import InMemoryUnitOfWork
-from research_forge.adapters.outbound.sandbox import DeterministicFakeSandbox
+from research_forge.adapters.outbound.queue import ImmediateQueue
+from research_forge.adapters.outbound.sandbox import LocalDevelopmentSandbox
 from research_forge.adapters.outbound.bundle import DeterministicZipBundleBuilder
-from research_forge.application.dto import JsonSchemaReproductionSpecValidator, SandboxResult, SandboxRunRequest
+from research_forge.application.dto import JsonSchemaReproductionSpecValidator
 from research_forge.application.use_cases import (
     ClaimBaselineAttempt,
     CompleteReproductionMission,
@@ -29,6 +31,7 @@ from research_forge.application.use_cases import (
 from research_forge.domain.evidence import MetricComparator, MetricExpectation, extract_and_validate_metric
 from research_forge.domain.evidence.metric import MetricExtractionError
 from research_forge.domain.mission import AttemptStatus, MissionStatus
+from research_forge.bootstrap import build_local_vs001_runtime
 
 
 class _Clock:
@@ -52,7 +55,10 @@ def _git(*arguments: str, cwd: Path) -> str:
 def _fixture_repository(root: Path) -> tuple[Path, str]:
     repository = root / "fixture-repo"
     repository.mkdir()
-    (repository / "evaluate.py").write_text("# executed by the pinned image\n", encoding="utf-8")
+    (repository / "evaluate.py").write_text(
+        "import json\nfrom pathlib import Path\nPath('metrics.json').write_text(json.dumps({'accuracy': 0.8}))\n",
+        encoding="utf-8",
+    )
     _git("init", cwd=repository)
     _git("config", "user.email", "tests@example.invalid", cwd=repository)
     _git("config", "user.name", "Research Forge Tests", cwd=repository)
@@ -142,21 +148,9 @@ def test_no_llm_baseline_flow_creates_verified_metric_evidence(tmp_path: Path) -
         idempotency_key=f"{mission.attempt_id}:baseline-worktree",
     )
 
-    def result_factory(request: SandboxRunRequest) -> SandboxResult:
-        return SandboxResult(
-            operation_id=request.operation_id,
-            execution_id="sandbox-execution-1",
-            exit_code=0,
-            stdout=b"baseline complete\n",
-            stderr=b"",
-            output_files={"metrics.json": b'{"accuracy": 0.8}'},
-            environment_digest=request.image_digest,
-            dataset_sha256="0" * 64,
-        )
-
     result = RunBaselineAttempt(
         unit_of_work=uow,
-        sandbox_executor=DeterministicFakeSandbox(result_factory),
+        sandbox_executor=LocalDevelopmentSandbox(tmp_path / "workspaces"),
         clock=clock,
         id_generator=ids,
     ).execute(
@@ -223,3 +217,32 @@ def test_no_llm_baseline_flow_creates_verified_metric_evidence(tmp_path: Path) -
             "source.tar",
             "artifacts/metrics.json",
         }.issubset(archive.namelist())
+        source_archive = archive.read("source.tar")
+    replay_directory = tmp_path / "bundle-replay"
+    replay_directory.mkdir()
+    with TarFile(fileobj=BytesIO(source_archive)) as archive:
+        archive.extractall(replay_directory, filter="data")
+    run(["python", "evaluate.py", "--output", "metrics.json"], cwd=replay_directory, check=True)
+    assert json.loads((replay_directory / "metrics.json").read_text(encoding="utf-8"))["accuracy"] == 0.8
+
+
+def test_queue_redelivery_after_db_completion_reuses_the_existing_bundle(tmp_path: Path) -> None:
+    repository, commit_sha = _fixture_repository(tmp_path)
+    schema_path = Path(__file__).resolve().parents[3] / "docs" / "规范" / "科研复现任务规范_v1.schema.json"
+    runtime = build_local_vs001_runtime(
+        schema=json.loads(schema_path.read_text(encoding="utf-8")),
+        workspace_root=tmp_path / "workspaces",
+        artifact_root=tmp_path / "cas",
+    )
+    mission = runtime.create_mission.execute(_spec(repository, commit_sha))
+    queue = ImmediateQueue()
+    queue.publish(mission.attempt_id)
+
+    first = runtime.worker.process(attempt_id=mission.attempt_id, owner="worker-a")
+    assert queue.receive() == mission.attempt_id
+    second = runtime.worker.process(attempt_id=mission.attempt_id, owner="worker-b")
+    queue.acknowledge(mission.attempt_id)
+
+    assert first == second
+    assert queue.acknowledged == [mission.attempt_id]
+    assert len(runtime.unit_of_work.bundles) == 1
