@@ -14,7 +14,6 @@ import pytest
 from research_forge.adapters.outbound.artifacts import LocalContentAddressedStore
 from research_forge.adapters.outbound.git import GitWorktreeManager
 from research_forge.adapters.outbound.persistence import InMemoryUnitOfWork
-from research_forge.adapters.outbound.queue import ImmediateQueue
 from research_forge.adapters.outbound.sandbox import LocalDevelopmentSandbox
 from research_forge.adapters.outbound.bundle import DeterministicZipBundleBuilder
 from research_forge.application.dto import JsonSchemaReproductionSpecValidator
@@ -256,14 +255,14 @@ def test_queue_redelivery_after_db_completion_reuses_the_existing_bundle(tmp_pat
         allowed_image_digests={"sha256:" + "b" * 64},
     )
     mission = runtime.create_mission.execute(_spec(repository, commit_sha))
-    queue = ImmediateQueue()
-    queue.publish(mission.attempt_id)
+    published = runtime.publish_outbox.execute()
 
     first = runtime.worker.process(attempt_id=mission.attempt_id, owner="worker-a")
-    assert queue.receive() == mission.attempt_id
+    assert published.published_event_ids
+    assert runtime.queue.receive() == mission.attempt_id
     second = runtime.worker.process(attempt_id=mission.attempt_id, owner="worker-b")
-    queue.acknowledge(mission.attempt_id)
+    runtime.queue.acknowledge(mission.attempt_id)
 
     assert first == second
-    assert queue.acknowledged == [mission.attempt_id]
+    assert runtime.queue.acknowledged == [mission.attempt_id]
     assert len(runtime.unit_of_work.bundles) == 1

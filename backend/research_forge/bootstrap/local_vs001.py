@@ -14,6 +14,7 @@ from research_forge.adapters.outbound.artifacts import LocalContentAddressedStor
 from research_forge.adapters.outbound.bundle import DeterministicZipBundleBuilder
 from research_forge.adapters.outbound.git import GitWorktreeManager, PinnedLocalPrerequisiteVerifier
 from research_forge.adapters.outbound.persistence import InMemoryUnitOfWork
+from research_forge.adapters.outbound.queue import ImmediateQueue
 from research_forge.adapters.outbound.sandbox import LocalDevelopmentSandbox
 from research_forge.adapters.outbound.system import SystemClock, UuidGenerator
 from research_forge.application.dto import JsonSchemaReproductionSpecValidator
@@ -30,6 +31,7 @@ from research_forge.application.use_cases import (
     RequestMissionCancellation,
     ResolveApproval,
     RunBaselineAttempt,
+    PublishPendingOutbox,
 )
 
 
@@ -41,6 +43,8 @@ class LocalVs001Runtime:
     worker: BaselineWorker
     unit_of_work: InMemoryUnitOfWork
     controller: MissionController
+    queue: ImmediateQueue
+    publish_outbox: PublishPendingOutbox
 
 
 def build_local_vs001_runtime(
@@ -55,6 +59,7 @@ def build_local_vs001_runtime(
     clock = SystemClock()
     identifiers = UuidGenerator()
     unit_of_work = InMemoryUnitOfWork()
+    queue = ImmediateQueue()
     workspace_manager = GitWorktreeManager(workspace_root)
     artifact_store = LocalContentAddressedStore(artifact_root)
     artifact_persister = PersistArtifact(
@@ -125,11 +130,14 @@ def build_local_vs001_runtime(
             ),
         )
     )
+    publish_outbox = PublishPendingOutbox(unit_of_work=unit_of_work, task_queue=queue, clock=clock)
     return LocalVs001Runtime(
         create_mission=create_mission,
         worker=worker,
         unit_of_work=unit_of_work,
         controller=controller,
+        queue=queue,
+        publish_outbox=publish_outbox,
     )
 
 
