@@ -1,0 +1,42 @@
+# Research Forge durable state services only.
+# API, publisher, and worker run as host services so that frozen repository paths
+# and Docker bind-mount source paths are identical from validation through execution.
+services:
+  postgres:
+    image: postgres:16.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: research_forge
+      POSTGRES_USER: research_forge
+      POSTGRES_PASSWORD: ${RF_POSTGRES_PASSWORD:?Set RF_POSTGRES_PASSWORD in the deployment environment}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - research_forge_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U research_forge -d research_forge"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+
+  redis:
+    image: redis:7.4.1-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - research_forge_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  research_forge_postgres:
+  research_forge_redis:

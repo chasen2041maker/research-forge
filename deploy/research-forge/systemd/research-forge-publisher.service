@@ -1,0 +1,21 @@
+[Unit]
+Description=Research Forge durable Outbox publisher
+After=network-online.target research-forge-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=research-forge
+Group=research-forge
+WorkingDirectory=/opt/research-forge/backend
+EnvironmentFile=/etc/research-forge/research-forge.env
+ExecStart=/opt/research-forge/.venv/bin/python -m research_forge.bootstrap.runtime publisher --poll-seconds 1
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

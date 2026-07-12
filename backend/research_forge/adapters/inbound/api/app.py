@@ -45,6 +45,11 @@ def create_app(
         if authorization is None or not hmac.compare_digest(authorization, expected):
             raise HTTPException(status_code=401, detail="Invalid local API token.")
 
+    @app.get("/healthz")
+    def healthcheck() -> dict[str, str]:
+        """Unauthenticated process liveness endpoint; dependency health is checked by the runner."""
+        return {"status": "ok"}
+
     @app.post("/v1/missions", dependencies=[Depends(authenticate)])
     def create_mission(body: ReproductionSpecBody) -> object:
         try:

@@ -1,0 +1,23 @@
+[Unit]
+Description=Research Forge API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=research-forge
+Group=research-forge
+WorkingDirectory=/opt/research-forge/backend
+EnvironmentFile=/etc/research-forge/research-forge.env
+ExecStart=/opt/research-forge/.venv/bin/python -m research_forge.bootstrap.runtime api
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/srv/research-forge/repositories /srv/research-forge/papers
+ReadWritePaths=/srv/research-forge/workspaces /srv/research-forge/cas
+
+[Install]
+WantedBy=multi-user.target

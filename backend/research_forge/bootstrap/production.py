@@ -1,0 +1,290 @@
+"""Production composition root for the durable VS-001 baseline process roles.
+
+This module deliberately keeps process wiring outside Domain and Application.  It
+uses PostgreSQL as the source of truth, Redis only as Attempt transport, and the
+Linux Docker broker only in the worker process.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from collections.abc import Mapping
+from dataclasses import dataclass
+from datetime import timedelta
+from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import sessionmaker
+
+from research_forge.adapters.inbound.api import MissionController, create_app
+from research_forge.adapters.inbound.worker import BaselineWorker, BaselineWorkerUseCases
+from research_forge.adapters.outbound.artifacts import LocalContentAddressedStore
+from research_forge.adapters.outbound.bundle import DeterministicZipBundleBuilder
+from research_forge.adapters.outbound.git import GitWorktreeManager, PinnedLocalPrerequisiteVerifier
+from research_forge.adapters.outbound.persistence import SqlAlchemyUnitOfWork
+from research_forge.adapters.outbound.queue import RedisTaskQueue
+from research_forge.adapters.outbound.sandbox import DockerSandboxBroker
+from research_forge.adapters.outbound.system import SystemClock, UuidGenerator
+from research_forge.application.dto import JsonSchemaReproductionSpecValidator
+from research_forge.application.use_cases import (
+    ClaimBaselineAttempt,
+    CompleteReproductionMission,
+    CreateReproductionMission,
+    DownloadBundle,
+    EnsureBaselineWorkspace,
+    FinalizeBaselineExecution,
+    GetBaselineOutcome,
+    GetMissionStatus,
+    PersistArtifact,
+    PublishPendingOutbox,
+    RequestMissionCancellation,
+    ResolveApproval,
+    RunBaselineAttempt,
+)
+from research_forge.domain.mission import TaskType
+
+
+class ProductionConfigurationError(ValueError):
+    """Raised when a production process would start with incomplete policy."""
+
+
+class UnsupportedProductionAttempt(RuntimeError):
+    """Raised fail-closed when a baseline worker receives a repair attempt."""
+
+
+@dataclass(frozen=True, slots=True)
+class ProductionVs001Settings:
+    """Explicit process configuration; secret values are supplied only through environment."""
+
+    database_url: str
+    redis_url: str
+    api_token: str
+    schema: Mapping[str, Any]
+    workspace_root: Path
+    artifact_root: Path
+    paper_artifacts: Mapping[str, str]
+    allowed_images: Mapping[str, str]
+    cors_origins: tuple[str, ...]
+
+    @classmethod
+    def from_environment(cls, environ: Mapping[str, str] | None = None) -> "ProductionVs001Settings":
+        """Load paths, schema, and immutable execution policy without logging secrets."""
+        values = os.environ if environ is None else environ
+        database_url = _required(values, "RF_DATABASE_URL")
+        redis_url = _required(values, "RF_REDIS_URL")
+        api_token = _required(values, "RF_API_TOKEN")
+        schema = _read_object(Path(_required(values, "RF_SCHEMA_PATH")), "schema")
+        policy = _read_object(Path(_required(values, "RF_POLICY_PATH")), "policy")
+        paper_artifacts = _string_mapping(policy.get("paper_artifacts"), "policy.paper_artifacts")
+        allowed_images = _string_mapping(policy.get("allowed_images"), "policy.allowed_images")
+        if not paper_artifacts:
+            raise ProductionConfigurationError("policy.paper_artifacts must contain at least one registered paper.")
+        if not allowed_images:
+            raise ProductionConfigurationError("policy.allowed_images must contain at least one immutable image.")
+        cors_origins = tuple(
+            origin.strip()
+            for origin in values.get("RF_CORS_ORIGINS", "http://127.0.0.1:3000,http://localhost:3000").split(",")
+            if origin.strip()
+        )
+        if not cors_origins:
+            raise ProductionConfigurationError("RF_CORS_ORIGINS must contain at least one origin.")
+        return cls(
+            database_url=database_url,
+            redis_url=redis_url,
+            api_token=api_token,
+            schema=schema,
+            workspace_root=Path(_required(values, "RF_WORKSPACE_ROOT")).resolve(),
+            artifact_root=Path(_required(values, "RF_ARTIFACT_ROOT")).resolve(),
+            paper_artifacts=paper_artifacts,
+            allowed_images=allowed_images,
+            cors_origins=cors_origins,
+        )
+
+
+@dataclass(slots=True)
+class ProductionVs001Runtime:
+    """Fully wired stateful baseline runtime used by API, publisher, and worker process roles."""
+
+    app: FastAPI
+    baseline_worker: BaselineWorker
+    publish_outbox: PublishPendingOutbox
+    queue: RedisTaskQueue
+    unit_of_work: SqlAlchemyUnitOfWork
+    database_engine: Engine
+    redis_client: object
+
+    def publish_once(self) -> int:
+        """Publish committed Outbox events and return the number of deliveries attempted."""
+        return len(self.publish_outbox.execute().published_event_ids)
+
+    def process_one(self, *, owner: str) -> bool:
+        """Process and acknowledge one baseline Attempt only after durable completion.
+
+        The reference production composition intentionally has no LLM DecisionEngine.
+        A repair Attempt is therefore left unacknowledged and raises a clear error rather
+        than silently treating a test decision adapter as production authority.
+        """
+        attempt_id = self.queue.receive()
+        if attempt_id is None:
+            return False
+        with self.unit_of_work:
+            attempt = self.unit_of_work.get_attempt(attempt_id)
+            if attempt is None:
+                raise UnsupportedProductionAttempt(f"Queue delivered unknown Attempt {attempt_id}.")
+            task = self.unit_of_work.get_task(str(attempt.task_id))
+            if task is None:
+                raise UnsupportedProductionAttempt(f"Attempt {attempt_id} has no durable Task.")
+            self.unit_of_work.commit()
+        if task.task_type is not TaskType.BASELINE_REPRODUCTION:
+            raise UnsupportedProductionAttempt(
+                "The baseline process role cannot execute a repair Attempt; configure a separately reviewed "
+                "DecisionEngine worker before acknowledging it."
+            )
+        self.baseline_worker.process(attempt_id=attempt_id, owner=owner)
+        self.queue.acknowledge(attempt_id)
+        return True
+
+    def check_dependencies(self) -> None:
+        """Verify PostgreSQL and Redis connectivity for service supervision."""
+        with self.database_engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        ping = getattr(self.redis_client, "ping", None)
+        if not callable(ping) or not bool(ping()):
+            raise RuntimeError("Redis ping failed.")
+
+
+def build_production_vs001_runtime(
+    settings: ProductionVs001Settings,
+    *,
+    redis_client: object | None = None,
+) -> ProductionVs001Runtime:
+    """Compose durable adapters without importing concrete infrastructure into application layers."""
+    engine = create_engine(settings.database_url, pool_pre_ping=True)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    unit_of_work = SqlAlchemyUnitOfWork(session_factory)
+    client = redis_client if redis_client is not None else _connect_redis(settings.redis_url)
+    queue = RedisTaskQueue(client=client)  # type: ignore[arg-type]
+    clock = SystemClock()
+    identifiers = UuidGenerator()
+    workspace_manager = GitWorktreeManager(settings.workspace_root)
+    artifact_store = LocalContentAddressedStore(settings.artifact_root)
+    artifact_persister = PersistArtifact(
+        unit_of_work=unit_of_work,
+        artifact_store=artifact_store,
+        clock=clock,
+        id_generator=identifiers,
+    )
+    create_mission = CreateReproductionMission(
+        spec_validator=JsonSchemaReproductionSpecValidator(settings.schema),
+        unit_of_work=unit_of_work,
+        clock=clock,
+        id_generator=identifiers,
+        prerequisite_verifier=PinnedLocalPrerequisiteVerifier(
+            paper_artifacts=settings.paper_artifacts,
+            allowed_image_digests=set(settings.allowed_images),
+        ),
+    )
+    controller = MissionController(
+        create_mission=create_mission,
+        get_status=GetMissionStatus(unit_of_work=unit_of_work),
+        request_cancellation=RequestMissionCancellation(
+            unit_of_work=unit_of_work,
+            clock=clock,
+            id_generator=identifiers,
+        ),
+        download_bundle=DownloadBundle(unit_of_work=unit_of_work, artifact_store=artifact_store),
+        resolve_approval=ResolveApproval(
+            unit_of_work=unit_of_work,
+            clock=clock,
+            id_generator=identifiers,
+        ),
+    )
+    baseline_worker = BaselineWorker(
+        BaselineWorkerUseCases(
+            get_outcome=GetBaselineOutcome(unit_of_work=unit_of_work),
+            claim=ClaimBaselineAttempt(
+                unit_of_work=unit_of_work,
+                clock=clock,
+                lease_duration=timedelta(seconds=30),
+            ),
+            ensure_workspace=EnsureBaselineWorkspace(
+                unit_of_work=unit_of_work,
+                workspace_manager=workspace_manager,
+                clock=clock,
+                id_generator=identifiers,
+            ),
+            run=RunBaselineAttempt(
+                unit_of_work=unit_of_work,
+                sandbox_executor=DockerSandboxBroker(
+                    workspace_root=settings.workspace_root,
+                    allowed_images=settings.allowed_images,
+                ),
+                clock=clock,
+                id_generator=identifiers,
+            ),
+            finalize=FinalizeBaselineExecution(
+                unit_of_work=unit_of_work,
+                artifact_persister=artifact_persister,
+                clock=clock,
+                id_generator=identifiers,
+            ),
+            complete=CompleteReproductionMission(
+                unit_of_work=unit_of_work,
+                artifact_store=artifact_store,
+                artifact_persister=artifact_persister,
+                workspace_manager=workspace_manager,
+                bundle_builder=DeterministicZipBundleBuilder(),
+                clock=clock,
+                id_generator=identifiers,
+            ),
+        )
+    )
+    return ProductionVs001Runtime(
+        app=create_app(controller=controller, local_token=settings.api_token, cors_origins=settings.cors_origins),
+        baseline_worker=baseline_worker,
+        publish_outbox=PublishPendingOutbox(unit_of_work=unit_of_work, task_queue=queue, clock=clock),
+        queue=queue,
+        unit_of_work=unit_of_work,
+        database_engine=engine,
+        redis_client=client,
+    )
+
+
+def _connect_redis(redis_url: str) -> object:
+    try:
+        import redis
+    except ImportError as exc:  # pragma: no cover - depends on deployment extras
+        raise ProductionConfigurationError("Install the redis package before starting a production process.") from exc
+    return redis.Redis.from_url(redis_url, decode_responses=False)
+
+
+def _required(values: Mapping[str, str], name: str) -> str:
+    value = values.get(name, "").strip()
+    if not value:
+        raise ProductionConfigurationError(f"{name} must be configured.")
+    return value
+
+
+def _read_object(path: Path, label: str) -> Mapping[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ProductionConfigurationError(f"Unable to read {label} JSON at {path}.") from exc
+    if not isinstance(payload, dict):
+        raise ProductionConfigurationError(f"{label} at {path} must be a JSON object.")
+    return payload
+
+
+def _string_mapping(value: object, label: str) -> dict[str, str]:
+    if not isinstance(value, dict):
+        raise ProductionConfigurationError(f"{label} must be an object of non-empty strings.")
+    result: dict[str, str] = {}
+    for key, item in value.items():
+        if not isinstance(key, str) or not key.strip() or not isinstance(item, str) or not item.strip():
+            raise ProductionConfigurationError(f"{label} must be an object of non-empty strings.")
+        result[key] = item
+    return result

@@ -1,0 +1,24 @@
+[Unit]
+Description=Research Forge privileged baseline sandbox worker
+After=network-online.target docker.service research-forge-publisher.service
+Wants=network-online.target docker.service
+
+[Service]
+Type=simple
+User=research-forge
+Group=research-forge
+SupplementaryGroups=docker
+WorkingDirectory=/opt/research-forge/backend
+EnvironmentFile=/etc/research-forge/research-forge.env
+ExecStart=/opt/research-forge/.venv/bin/python -m research_forge.bootstrap.runtime worker --poll-seconds 1
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/srv/research-forge/repositories /srv/research-forge/papers
+ReadWritePaths=/srv/research-forge/workspaces /srv/research-forge/cas
+
+[Install]
+WantedBy=multi-user.target

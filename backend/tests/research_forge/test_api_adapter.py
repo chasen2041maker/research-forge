@@ -37,6 +37,7 @@ def test_api_requires_local_token_and_exposes_only_controller_results() -> None:
         create_app(controller=controller, local_token="test-token", cors_origins=("http://localhost:3000",))
     )
 
+    assert client.get("/healthz").json() == {"status": "ok"}
     assert client.get("/v1/missions/mission-1").status_code == 401
     headers = {"Authorization": "Bearer test-token"}
     create = client.post("/v1/missions", json={"spec": {"mode": "reproduce"}}, headers=headers)

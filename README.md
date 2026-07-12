@@ -4,6 +4,10 @@
 </p>
 
 <p align="center">
+  <a href="README.zh-CN.md">中文说明</a>
+</p>
+
+<p align="center">
   <a href="https://github.com/chasen2041maker/research-forge/actions/workflows/research-forge.yml"><img src="https://github.com/chasen2041maker/research-forge/actions/workflows/research-forge.yml/badge.svg" alt="Research Forge gates" /></a>
   <img src="https://img.shields.io/badge/execution-offline%20by%20default-22c55e" alt="Offline by default" />
   <img src="https://img.shields.io/badge/evidence-deterministic-06b6d4" alt="Deterministic evidence" />
@@ -14,7 +18,7 @@
 
 Research Forge is a control plane for research reproduction. It does not accept a result merely because a worker says it passed: the result must be tied to a pinned commit, an operation ledger, content-addressed artifacts, a deterministic metric, evidence links, and a reproducible Bundle.
 
-**Status:** the VS-001 baseline slice, bounded repair workflow, durable approval flow, minimal local API/UI, SQLAlchemy persistence adapter, Alembic revisions, and Linux Docker gate are implemented and covered by CI. The legacy AI Co-Scientist demo remains isolated under [`backend/co_scientist`](backend/co_scientist).
+**Status:** the VS-001 baseline slice, bounded repair workflow, durable approval flow, minimal local API/UI, SQLAlchemy persistence adapter, Alembic revisions, Linux Docker gate, and host-process production composition/runbook are implemented and covered by CI. The legacy AI Co-Scientist demo remains isolated under [`backend/co_scientist`](backend/co_scientist).
 
 ## Why Research Forge?
 
@@ -147,7 +151,7 @@ The local API defaults to loopback and requires a Bearer token. CORS is restrict
 ## Security boundaries
 
 - Formal run stages use `--network none`; no run-stage network is allowed.
-- The Docker broker is the only execution boundary that invokes Docker. API and ordinary workers do not require the Docker socket.
+- The Docker broker is the only execution boundary that invokes Docker. API and Outbox publisher roles do not require the Docker socket; the dedicated sandbox worker does.
 - Candidate commits are limited by allowed paths, file count, changed lines, one commit, and one run.
 - Archive extraction rejects traversal, absolute paths, links, and unexpected members.
 - The approval record binds scope, task, parent Attempt, decision identity, expiry, and the exact patch hash.
@@ -170,7 +174,6 @@ docs/                     specification, ADRs, architecture, and review material
 
 Implemented core work is intentionally focused on reproducibility and recoverability. Planned work should build on these invariants rather than bypass them:
 
-- PostgreSQL / queue / broker production deployment composition and operational runbooks.
 - A narrowly-capable LLM `DecisionEngine` adapter, only after its policy and supply-chain gates are in place.
 - Documentation and demo fixtures for a clean-machine local run.
 
@@ -183,6 +186,7 @@ Research Forge does **not** currently claim browser automation, MCP, Skills, mul
 - [Architecture blueprint](docs/架构设计/科研复现智能体架构蓝图.md)
 - [Layering and governance rules](docs/架构设计/代码分层与架构治理规范.md)
 - [Accepted ADRs](docs/架构决策记录)
+- [Production deployment and recovery runbook](docs/operations/research-forge-deployment.md)
 - [Legacy system notes](docs/旧版资料/旧版系统说明.md)
 
 ## License
