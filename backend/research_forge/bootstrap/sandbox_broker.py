@@ -27,6 +27,7 @@ def main() -> int:
             executor=DockerSandboxBroker(
                 workspace_root=settings.workspace_root,
                 allowed_images=settings.allowed_images,
+                broker_state_root=settings.broker_state_root,
             ),
             socket_group=os.getenv("RF_BROKER_SOCKET_GROUP") or None,
         )

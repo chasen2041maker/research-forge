@@ -210,9 +210,9 @@ def _result_from_payload(payload: Mapping[str, object]) -> SandboxResult:
         operation_id=_required_string(payload, "operation_id"),
         execution_id=_required_string(payload, "execution_id"),
         exit_code=_integer(payload, "exit_code"),
-        stdout=_decode_bytes(_required_string(payload, "stdout")),
-        stderr=_decode_bytes(_required_string(payload, "stderr")),
-        output_files={path: _decode_bytes(_string(value, "output_files value")) for path, value in files.items()},
+        stdout=_decode_bytes(_base64_text(payload, "stdout")),
+        stderr=_decode_bytes(_base64_text(payload, "stderr")),
+        output_files={path: _decode_bytes(_base64_text_value(value, "output_files value")) for path, value in files.items()},
         environment_digest=_required_string(payload, "environment_digest"),
         dataset_sha256=_required_string(payload, "dataset_sha256"),
         logs_truncated=_boolean(payload, "logs_truncated"),
@@ -257,6 +257,16 @@ def _required_string(payload: Mapping[str, object], name: str) -> str:
 def _string(value: object, name: str) -> str:
     if not isinstance(value, str) or not value or "\x00" in value:
         raise ValueError(f"{name} must be a non-empty string without NUL.")
+    return value
+
+
+def _base64_text(payload: Mapping[str, object], name: str) -> str:
+    return _base64_text_value(payload.get(name), name)
+
+
+def _base64_text_value(value: object, name: str) -> str:
+    if not isinstance(value, str) or "\x00" in value:
+        raise ValueError(f"{name} must be a string without NUL.")
     return value
 
 

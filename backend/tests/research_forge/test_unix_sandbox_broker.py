@@ -36,8 +36,8 @@ def test_unix_broker_transports_only_typed_sandbox_messages(tmp_path: Path) -> N
             operation_id=item.operation_id,
             execution_id="execution-1",
             exit_code=0,
-            stdout=b"stdout",
-            stderr=b"stderr",
+            stdout=b"",
+            stderr=b"",
             output_files={"metrics.json": b'{"accuracy":0.8}'},
             environment_digest=item.image_digest,
             dataset_sha256="b" * 64,
@@ -55,5 +55,6 @@ def test_unix_broker_transports_only_typed_sandbox_messages(tmp_path: Path) -> N
         thread.join(timeout=5)
 
     assert result.output_files == {"metrics.json": b'{"accuracy":0.8}'}
-    assert result.stdout == b"stdout"
+    assert result.stdout == b""
+    assert result.stderr == b""
     assert sandbox.cancelled_operations == {"operation-1"}

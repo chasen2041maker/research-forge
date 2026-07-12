@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from io import BytesIO
 import json
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import pytest
 
 from research_forge.adapters.outbound.persistence import InMemoryUnitOfWork
 from research_forge.adapters.outbound.sandbox import DeterministicFakeSandbox, DockerSandboxBroker
+from research_forge.adapters.outbound.sandbox.docker_broker import _BoundedLogCollector, _bounded_diagnostic
 from research_forge.application.dto import NetworkPolicy, SandboxResult, SandboxRunRequest
 from research_forge.application.use_cases import (
     CancelBaselineAttempt,
@@ -102,7 +104,75 @@ def test_docker_command_applies_offline_hardened_policy_without_docker_socket(tm
     ]
     assert "docker.sock" not in " ".join(command)
     assert ",rw" not in command[command.index("--mount") + 1]
+    assert command[:5] == ["docker", "run", "-d", "--name", broker.container_name("operation-1")]
+    assert "--rm" not in command
+    assert "research-forge.operation=operation-1" in command
+    assert any(item.startswith("research-forge.input-hash=") for item in command)
     assert command[-4:] == ["python", "evaluate.py", "--output", "metrics.json"]
+
+
+def test_docker_cancel_uses_stable_name_stop_kill_and_remove(tmp_path: Path, monkeypatch) -> None:
+    workspace = tmp_path / "workspaces"
+    workspace.mkdir()
+    broker = DockerSandboxBroker(
+        workspace_root=workspace,
+        allowed_images={"sha256:" + "a" * 64: "python@sha256:" + "a" * 64},
+    )
+    existence = iter((True, True))
+    commands: list[tuple[str, ...]] = []
+    monkeypatch.setattr(broker, "_container_exists", lambda name: next(existence))
+    monkeypatch.setattr(broker, "_docker", lambda arguments, allow_failure=False: commands.append(arguments) or "")
+
+    broker.cancel("operation-1")
+
+    name = broker.container_name("operation-1")
+    assert commands == [("stop", "--time", "2", name), ("kill", name), ("rm", "-f", name)]
+
+
+def test_docker_launch_diagnostic_is_bounded_and_single_line() -> None:
+    assert _bounded_diagnostic(b" launch\nfailed " + b"x" * 1_000) == "launch failed " + "x" * 498
+    assert _bounded_diagnostic(None) == "no diagnostic was returned"
+
+
+def test_docker_log_collection_uses_one_shared_memory_budget() -> None:
+    collector = _BoundedLogCollector(5)
+
+    collector.drain("stdout", BytesIO(b"abcd"))
+    collector.drain("stderr", BytesIO(b"efgh"))
+
+    stdout, stderr, truncated = collector.result()
+    assert stdout == b"abcd"
+    assert stderr == b"e"
+    assert len(stdout) + len(stderr) == 5
+    assert truncated is True
+
+
+def test_docker_execution_does_not_pass_the_binary_twice(tmp_path: Path, monkeypatch) -> None:
+    workspace_root = tmp_path / "workspaces"
+    worktree = workspace_root / "mission-1" / "worktrees" / "baseline"
+    worktree.mkdir(parents=True)
+    broker = DockerSandboxBroker(
+        workspace_root=workspace_root,
+        allowed_images={"sha256:" + "a" * 64: "python@sha256:" + "a" * 64},
+    )
+    request = _request(str(worktree))
+    captured: list[tuple[str, ...]] = []
+
+    class _StopAfterLaunch(RuntimeError):
+        pass
+
+    monkeypatch.setattr(broker, "_container_state", lambda name: None)
+
+    def record_launch(arguments: tuple[str, ...], allow_failure: bool = False) -> str:
+        captured.append(arguments)
+        raise _StopAfterLaunch()
+
+    monkeypatch.setattr(broker, "_docker", record_launch)
+
+    with pytest.raises(_StopAfterLaunch):
+        broker._run_container(request)
+
+    assert captured == [tuple(broker.build_command(request)[1:])]
 
 
 def test_sandbox_completion_before_db_finalize_recovers_one_operation() -> None:

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
-from typing import Self
+from typing import Any, Self, cast
 
 from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from research_forge.domain.artifact import ArtifactKind, ArtifactRef, ArtifactRegistration
@@ -432,10 +433,13 @@ class SqlAlchemyUnitOfWork:
             if original_version is None:
                 session.add(MissionRow(mission_id=mission_id, **values))
             else:
-                result = session.execute(
-                    update(MissionRow)
-                    .where(MissionRow.mission_id == mission_id, MissionRow.version == original_version)
-                    .values(**values)
+                result = cast(
+                    CursorResult[Any],
+                    session.execute(
+                        update(MissionRow)
+                        .where(MissionRow.mission_id == mission_id, MissionRow.version == original_version)
+                        .values(**values)
+                    ),
                 )
                 if result.rowcount != 1:
                     raise OptimisticLockConflict(f"Mission {mission_id} was updated by another transaction.")
@@ -471,10 +475,13 @@ class SqlAlchemyUnitOfWork:
             if original_version is None:
                 session.add(AttemptRow(attempt_id=attempt_id, **values))
             else:
-                result = session.execute(
-                    update(AttemptRow)
-                    .where(AttemptRow.attempt_id == attempt_id, AttemptRow.version == original_version)
-                    .values(**values)
+                result = cast(
+                    CursorResult[Any],
+                    session.execute(
+                        update(AttemptRow)
+                        .where(AttemptRow.attempt_id == attempt_id, AttemptRow.version == original_version)
+                        .values(**values)
+                    ),
                 )
                 if result.rowcount != 1:
                     raise OptimisticLockConflict(f"Attempt {attempt_id} lease/version is stale.")
