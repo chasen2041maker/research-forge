@@ -52,6 +52,7 @@ websockets>=13.0               # 流式输出
 celery>=5.4.0                  # 异步长任务
 pydantic>=2.8.0
 pydantic-settings>=2.4.0       # .env 配置加载
+jsonschema>=4.23.0             # ReproductionSpec v1 contract validation
 
 # ---- 工具/辅助 ----
 python-dotenv>=1.0.1
