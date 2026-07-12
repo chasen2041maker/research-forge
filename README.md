@@ -55,7 +55,7 @@ Mission -> Task -> lease-owned Attempt -> Operation Ledger
 - Deterministic metric extraction, verified claims, and evidence closure.
 - One bounded repair flow: proposal -> persisted approval -> fresh child Attempt -> candidate commit -> candidate run -> evidence-gated Bundle.
 - FastAPI local-token surface for Mission status, cancellation, Bundle download, and approval decisions; the Next.js Forge console reads that state without owning it.
-- SQLAlchemy source-of-truth adapter, static Alembic revisions, and CI migration upgrade/downgrade verification.
+- SQLAlchemy source-of-truth adapter, static Alembic revisions, CI migration upgrade/downgrade verification, and a real PostgreSQL service gate.
 - A frozen 16-case release manifest with the baseline end-to-end proof repeated 10 times, repeated recovery cases, append-only JSON reports, and a retained GitHub Actions artifact.
 
 ## 10-second proof

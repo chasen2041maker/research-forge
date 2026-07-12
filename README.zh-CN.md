@@ -48,7 +48,7 @@ Mission -> Task -> 由租约拥有的 Attempt -> Operation Ledger
 - 确定性指标提取、已验证的 Claim 和完整的 Evidence 链。
 - 一个受限修复闭环：提案 -> 持久化审批 -> 新建子 Attempt -> 候选 commit -> 候选执行 -> 证据门控 Bundle。
 - 使用本地 Bearer Token 的 FastAPI：Mission 状态、取消、Bundle 下载和审批决定；Next.js Forge 控制台只读取该持久化状态，不保存第二份业务真相。
-- SQLAlchemy 真相源适配器、静态 Alembic 版本和迁移升级/降级 CI 校验。
+- SQLAlchemy 真相源适配器、静态 Alembic 版本、迁移升级/降级 CI 校验，以及真实 PostgreSQL service 门禁。
 - 冻结的 16 用例发布清单；其中基线端到端证明连续运行 10 次，恢复场景也会重复运行，并生成可保留的 JSON 报告。
 - 可部署的主机进程组合：Compose 仅负责 PostgreSQL 与 Redis；API、Outbox 发布器和有 Docker 权限的专用 worker 在同一 Linux 主机路径上运行。
 
