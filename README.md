@@ -115,6 +115,16 @@ The handoff never copies a Studio suggestion into an execution field automatical
 evidence closure, a handoff Mission exposes read-only `VerifiedResult v1` facts; this does not
 change the evidence gate or make unverified output look verified.
 
+## Product demos
+
+Run the three deterministic handoff, verified-result, and bounded-repair demonstrations with:
+
+```bash
+python backend/scripts/run_research_forge_demos.py --output-dir artifacts/demo-reports
+```
+
+See [product-demos.md](docs/operations/product-demos.md) for the exact evidence each demo covers.
+
 ## Core concepts
 
 | Concept | What it means | Why it matters |

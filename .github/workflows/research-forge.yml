@@ -100,9 +100,16 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r deploy/research-forge/requirements.txt httpx mypy pytest ruff
       - run: python backend/scripts/run_frozen_research_forge_eval.py --output-dir artifacts/eval-reports
+      - run: python backend/scripts/run_research_forge_demos.py --output-dir artifacts/demo-reports
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: research-forge-frozen-evaluation
           path: artifacts/eval-reports/*.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: research-forge-product-demos
+          path: artifacts/demo-reports/*.json
           if-no-files-found: error
