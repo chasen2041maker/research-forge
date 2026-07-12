@@ -1,0 +1,53 @@
+# ===== AI Co-Scientist 基础设施 =====
+# 仅在需要完整模式时启动。MVP 阶段 SQLite + NetworkX 已够用。
+# 使用方法:docker compose up -d
+
+services:
+  # 向量数据库:存论文 embedding,供 GraphRAG 混合检索
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: co_scientist_qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - ./data/qdrant:/qdrant/storage
+    restart: unless-stopped
+
+  # 图数据库:存知识图谱(实体关系三元组)
+  neo4j:
+    image: neo4j:5-community
+    container_name: co_scientist_neo4j
+    ports:
+      - "7474:7474"   # Web UI
+      - "7687:7687"   # Bolt 协议
+    environment:
+      NEO4J_AUTH: neo4j/co_scientist_pwd
+      NEO4J_PLUGINS: '["apoc"]'
+    volumes:
+      - ./data/neo4j:/data
+    restart: unless-stopped
+
+  # 关系数据库:LangGraph Checkpointer 存状态快照(模块 8 分叉回放)
+  postgres:
+    image: postgres:16-alpine
+    container_name: co_scientist_postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: co_scientist
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  # Redis:Celery 任务队列 + LLM 响应缓存
+  redis:
+    image: redis:7-alpine
+    container_name: co_scientist_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data
+    restart: unless-stopped

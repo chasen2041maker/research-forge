@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+venv/
+.venv/
+env/
+
+# 环境变量
+.env
+.env.local
+.env.*.local
+
+# 数据/输出
+data/cache/
+data/checkpoints/
+data/outputs/
+data/logs/
+data/postgres/
+data/neo4j/
+data/qdrant/
+data/redis/
+data/cost_tracker.db
+data/forks.db
+data/memory.db
+data/prompts_ab.db
+data/*.db
+# 后端运行时也会生成同样的数据、数据库和产物
+backend/data/
+
+# 本地运行与测试产物
+logs/
+run-logs/
+pytest-cache-files-*/
+
+# 前端
+node_modules/
+.next/
+out/
+.pnpm-store/
+dist/
+
+# IDE
+.vscode/
+.idea/
+.claude/
+*.swp
+.DS_Store
+
+# 临时
+*.log
+*.tmp
