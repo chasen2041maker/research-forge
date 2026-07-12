@@ -8,6 +8,16 @@ on:
 jobs:
   architecture-and-vs001:
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.4.1-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -18,6 +28,8 @@ jobs:
       - run: python -m mypy backend/research_forge backend/research_contracts backend/research_gateway --follow-imports=skip --ignore-missing-imports --check-untyped-defs --warn-unused-ignores
       - run: python backend/scripts/check_research_forge_secrets.py
       - run: python -m pytest backend/tests/research_forge backend/tests/research_integration -q -m 'not docker'
+        env:
+          RF_TEST_REDIS_URL: redis://127.0.0.1:6379/0
       - run: python -m ruff check backend/research_forge backend/research_contracts backend/research_gateway backend/co_scientist/public_api backend/tests/research_forge backend/tests/research_integration
 
   docker-vs001-gate:

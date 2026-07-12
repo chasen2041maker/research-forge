@@ -38,6 +38,7 @@ from research_forge.domain.evidence.metric import MetricExtractionError
 from research_forge.domain.errors import CancellationRequested
 from research_forge.domain.mission import AttemptStatus, MissionStatus
 from research_forge.bootstrap import build_local_vs001_runtime
+from research_forge.application.ports.queue import AttemptRoute
 
 
 class _Clock:
@@ -366,9 +367,10 @@ def test_queue_redelivery_after_db_completion_reuses_the_existing_bundle(tmp_pat
 
     first = runtime.worker.process(attempt_id=mission.attempt_id, owner="worker-a")
     assert published.published_event_ids
-    assert runtime.queue.receive() == mission.attempt_id
+    delivery = runtime.queue.receive(route=AttemptRoute.BASELINE, consumer_name="test-worker")
+    assert delivery is not None and delivery.attempt_id == mission.attempt_id
     second = runtime.worker.process(attempt_id=mission.attempt_id, owner="worker-b")
-    runtime.queue.acknowledge(mission.attempt_id)
+    runtime.queue.acknowledge(delivery)
 
     assert first == second
     assert runtime.queue.acknowledged == [mission.attempt_id]

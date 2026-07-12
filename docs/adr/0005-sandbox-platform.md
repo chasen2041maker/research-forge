@@ -9,7 +9,7 @@ scope: research_forge
 ## Status
 
 Accepted — partially implemented. Linux/WSL2 and the dedicated broker are the formal boundary, but
-broker completed-result recovery is in-process only and the VS-001 runtime supports the documented
+broker completed-result recovery persists checksummed records across restart and the VS-001 runtime supports the documented
 prebuilt/offline subset rather than every planned environment-preparation mode.
 
 ## Context

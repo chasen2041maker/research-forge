@@ -30,6 +30,7 @@ from research_forge.adapters.outbound.queue import RedisTaskQueue
 from research_forge.adapters.outbound.sandbox import UnixSandboxBrokerClient
 from research_forge.adapters.outbound.system import SystemClock, UuidGenerator
 from research_forge.application.dto import JsonSchemaReproductionSpecValidator
+from research_forge.application.ports.queue import AttemptRoute
 from research_forge.application.use_cases import (
     CancelBaselineAttempt,
     ClaimBaselineAttempt,
@@ -66,6 +67,10 @@ class ProductionVs001Settings:
 
     database_url: str
     redis_url: str
+    redis_stream_prefix: str
+    redis_consumer_group: str
+    redis_visibility_timeout_seconds: int
+    redis_max_delivery_attempts: int
     api_token: str
     schema: Mapping[str, Any]
     workspace_root: Path
@@ -84,6 +89,10 @@ class ProductionVs001Settings:
         values = os.environ if environ is None else environ
         database_url = _required(values, "RF_DATABASE_URL")
         redis_url = _required(values, "RF_REDIS_URL")
+        redis_stream_prefix = values.get("RF_REDIS_STREAM_PREFIX", "research-forge:attempts").strip()
+        redis_consumer_group = values.get("RF_REDIS_CONSUMER_GROUP", "research-forge-workers").strip()
+        if not redis_stream_prefix or not redis_consumer_group:
+            raise ProductionConfigurationError("Redis Stream prefix and consumer group must not be blank.")
         api_token = _required(values, "RF_API_TOKEN")
         schema = _read_object(Path(_required(values, "RF_SCHEMA_PATH")), "schema")
         policy = _read_object(Path(_required(values, "RF_POLICY_PATH")), "policy")
@@ -109,6 +118,12 @@ class ProductionVs001Settings:
         return cls(
             database_url=database_url,
             redis_url=redis_url,
+            redis_stream_prefix=redis_stream_prefix,
+            redis_consumer_group=redis_consumer_group,
+            redis_visibility_timeout_seconds=_positive_environment_integer(
+                values, "RF_REDIS_VISIBILITY_TIMEOUT_SECONDS", 60
+            ),
+            redis_max_delivery_attempts=_positive_environment_integer(values, "RF_REDIS_MAX_DELIVERY_ATTEMPTS", 3),
             api_token=api_token,
             schema=schema,
             workspace_root=Path(_required(values, "RF_WORKSPACE_ROOT")).resolve(),
@@ -150,15 +165,17 @@ class ProductionVs001Runtime:
         return len(self.reconcile_stale_operations.execute().operation_ids)
 
     def process_one(self, *, owner: str) -> bool:
-        """Process and acknowledge one baseline Attempt only after durable completion.
+        """Process and acknowledge one baseline-lane Stream receipt after durable completion.
 
-        The reference production composition intentionally has no LLM DecisionEngine.
-        A repair Attempt is therefore left unacknowledged and raises a clear error rather
-        than silently treating a test decision adapter as production authority.
+        The reference production composition intentionally consumes only the baseline Stream.
+        Repair deliveries remain in their separate lane until a separately reviewed DecisionEngine
+        worker is configured, preventing this process from silently treating a test adapter as
+        production authority.
         """
-        attempt_id = self.queue.receive()
-        if attempt_id is None:
+        delivery = self.queue.receive(route=AttemptRoute.BASELINE, consumer_name=owner)
+        if delivery is None:
             return False
+        attempt_id = delivery.attempt_id
         with self.unit_of_work:
             attempt = self.unit_of_work.get_attempt(attempt_id)
             if attempt is None:
@@ -175,9 +192,9 @@ class ProductionVs001Runtime:
         try:
             self.baseline_worker.process(attempt_id=attempt_id, owner=owner)
         except CancellationRequested:
-            self.queue.acknowledge(attempt_id)
+            self.queue.acknowledge(delivery)
             return True
-        self.queue.acknowledge(attempt_id)
+        self.queue.acknowledge(delivery)
         return True
 
     def check_dependencies(self, *, check_broker: bool = False) -> None:
@@ -201,7 +218,13 @@ def build_production_vs001_runtime(
     session_factory = sessionmaker(bind=engine, expire_on_commit=False)
     unit_of_work = SqlAlchemyUnitOfWork(session_factory)
     client = redis_client if redis_client is not None else _connect_redis(settings.redis_url)
-    queue = RedisTaskQueue(client=client)  # type: ignore[arg-type]
+    queue = RedisTaskQueue(
+        client=client,  # type: ignore[arg-type]
+        stream_prefix=settings.redis_stream_prefix,
+        consumer_group=settings.redis_consumer_group,
+        visibility_timeout_seconds=settings.redis_visibility_timeout_seconds,
+        max_delivery_attempts=settings.redis_max_delivery_attempts,
+    )
     clock = SystemClock()
     identifiers = UuidGenerator()
     workspace_manager = GitWorktreeManager(settings.workspace_root)
@@ -317,6 +340,17 @@ def _required(values: Mapping[str, str], name: str) -> str:
     value = values.get(name, "").strip()
     if not value:
         raise ProductionConfigurationError(f"{name} must be configured.")
+    return value
+
+
+def _positive_environment_integer(values: Mapping[str, str], name: str, default: int) -> int:
+    raw_value = values.get(name, str(default)).strip()
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise ProductionConfigurationError(f"{name} must be a positive integer.") from exc
+    if value <= 0:
+        raise ProductionConfigurationError(f"{name} must be a positive integer.")
     return value
 
 

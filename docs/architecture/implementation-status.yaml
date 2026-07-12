@@ -18,7 +18,7 @@ capabilities:
   worker_lease_and_cancellation:
     status: partial
     implemented: Mission, Task, Attempt, Operation, and Approval use persisted compare-and-swap versions; Attempt also has leases, heartbeats, and cancellation paths.
-    absent: Cross-process execution recovery is still bounded by the queue and broker limitations below.
+    absent: The reconciler does not yet inventory every cross-store orphan such as CAS bytes or pre-existing Git commits.
   sandbox_broker_recovery:
     status: implemented
     evidence: backend/tests/research_forge/test_completed_result_store.py
@@ -31,9 +31,9 @@ capabilities:
     implemented: Current subset is documented in runtime-capability-profile-v0.1.md.
     absent: Schema allowances are broader than VS-001 runtime behavior.
   redis_attempt_transport:
-    status: partial
-    implemented: Redis transports Attempt IDs.
-    absent: Versioned message envelopes, streams, visibility timeouts, routing, and DLQ are not implemented.
+    status: implemented
+    evidence: backend/tests/research_forge/test_redis_queue.py and backend/tests/research_forge/test_redis_streams_integration.py
+    implemented: Versioned Redis Stream envelopes route baseline and repair Attempts separately; consumer groups recover expired pending entries and atomically dead-letter exhausted deliveries.
   studio_forge_contract_boundary:
     status: implemented
     evidence: backend/tests/research_integration/test_studio_forge_handoff.py

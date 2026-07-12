@@ -8,6 +8,7 @@ import pytest
 
 from research_forge.adapters.outbound.persistence import InMemoryUnitOfWork
 from research_forge.adapters.outbound.queue import ImmediateQueue
+from research_forge.application.ports.queue import AttemptRoute
 from research_forge.application.use_cases import (
     ClaimBaselineAttempt,
     PublishPendingOutbox,
@@ -195,7 +196,8 @@ def test_reconciler_requeues_each_stale_operation_once_through_the_outbox() -> N
     queue = ImmediateQueue()
     PublishPendingOutbox(unit_of_work=uow, task_queue=queue, clock=clock).execute()
 
-    assert queue.receive() == "attempt-1"
+    delivery = queue.receive(route=AttemptRoute.BASELINE, consumer_name="test-worker")
+    assert delivery is not None and delivery.attempt_id == "attempt-1"
 
 
 def test_reconciler_preserves_the_repair_attempt_delivery_topic() -> None:

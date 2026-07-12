@@ -9,7 +9,8 @@ scope: research_forge
 ## Status
 
 Accepted — partially implemented. Mission, Task, Attempt, Operation, and Approval have persisted
-compare-and-swap versions; broker restart recovery and queue delivery semantics remain incomplete.
+compare-and-swap versions; broker restart recovery and Redis Stream delivery semantics are shipped,
+while complete cross-store orphan inventory remains future work.
 
 ## Context
 

@@ -8,6 +8,7 @@ import pytest
 
 from research_forge.adapters.outbound.persistence import InMemoryUnitOfWork
 from research_forge.adapters.outbound.queue import ImmediateQueue
+from research_forge.application.ports.queue import AttemptDelivery, AttemptRoute
 from research_forge.application.use_cases import OutboxPublicationError, PublishPendingOutbox
 from research_forge.domain.mission import OutboxEvent
 
@@ -18,15 +19,16 @@ class _Clock:
 
 
 class _FailingQueue:
-    def publish(self, attempt_id: str) -> None:
-        del attempt_id
+    def publish(self, attempt_id: str, *, route: AttemptRoute) -> None:
+        del attempt_id, route
         raise RuntimeError("transport unavailable")
 
-    def receive(self) -> str | None:
+    def receive(self, *, route: AttemptRoute, consumer_name: str) -> AttemptDelivery | None:
+        del route, consumer_name
         return None
 
-    def acknowledge(self, attempt_id: str) -> None:
-        del attempt_id
+    def acknowledge(self, delivery: AttemptDelivery) -> None:
+        del delivery
 
 
 def _event(*, event_id: str = "outbox-1", topic: str = "baseline_attempt.ready") -> OutboxEvent:
@@ -56,8 +58,9 @@ def test_outbox_publisher_marks_only_successfully_delivered_events() -> None:
 
     assert first.published_event_ids == ("outbox-1",)
     assert second.published_event_ids == ()
-    assert queue.receive() == "attempt-1"
-    queue.acknowledge("attempt-1")
+    delivery = queue.receive(route=AttemptRoute.BASELINE, consumer_name="test-worker")
+    assert delivery is not None and delivery.attempt_id == "attempt-1"
+    queue.acknowledge(delivery)
 
 
 def test_outbox_publisher_leaves_event_pending_when_transport_fails() -> None:

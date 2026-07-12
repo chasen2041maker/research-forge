@@ -19,30 +19,46 @@ from research_forge.bootstrap import (
     ProductionVs001Settings,
     build_production_vs001_runtime,
 )
+from research_forge.application.ports.queue import AttemptDelivery, AttemptRoute
 from research_forge.domain.errors import CancellationRequested
 from research_forge.domain.mission import MissionId, Task, TaskId, TaskType
 
 
 class _Redis:
-    def __init__(self) -> None:
-        self.values: list[str] = []
+    def xgroup_create(self, name: str, groupname: str, id: str, mkstream: bool) -> int:
+        del name, groupname, id, mkstream
+        return 1
 
-    def rpush(self, key: str, value: str) -> int:
-        assert key == "research-forge:attempts"
-        self.values.append(value)
-        return len(self.values)
+    def xadd(self, name: str, fields: object) -> str:
+        del name, fields
+        return "1-0"
 
-    def lindex(self, key: str, index: int) -> str | None:
-        assert key == "research-forge:attempts" and index == 0
-        return self.values[0] if self.values else None
+    def xreadgroup(self, groupname: str, consumername: str, streams: object, count: int, block: int) -> list[object]:
+        del groupname, consumername, streams, count, block
+        return []
+
+    def xautoclaim(
+        self,
+        name: str,
+        groupname: str,
+        consumername: str,
+        min_idle_time: int,
+        start_id: str,
+        count: int,
+    ) -> tuple[str, list[object], list[object]]:
+        del name, groupname, consumername, min_idle_time, start_id, count
+        return "0-0", [], []
+
+    def xpending_range(self, name: str, groupname: str, min: str, max: str, count: int) -> list[object]:
+        del name, groupname, min, max, count
+        return []
+
+    def xack(self, name: str, groupname: str, *ids: str) -> int:
+        del name, groupname, ids
+        return 1
 
     def eval(self, script: str, numkeys: int, *keys_and_args: str) -> int:
-        assert "LPOP" in script and numkeys == 1
-        key, attempt_id = keys_and_args
-        assert key == "research-forge:attempts"
-        if not self.values or self.values[0] != attempt_id:
-            return 0
-        self.values.pop(0)
+        del script, numkeys, keys_and_args
         return 1
 
     @staticmethod
@@ -54,12 +70,12 @@ class _CancellationQueue:
     def __init__(self) -> None:
         self.acknowledged: list[str] = []
 
-    @staticmethod
-    def receive() -> str:
-        return "attempt-cancelled"
+    def receive(self, *, route: AttemptRoute, consumer_name: str) -> AttemptDelivery:
+        assert route is AttemptRoute.BASELINE and consumer_name == "worker-cancel"
+        return AttemptDelivery("attempt-cancelled", AttemptRoute.BASELINE, "1-0")
 
-    def acknowledge(self, attempt_id: str) -> None:
-        self.acknowledged.append(attempt_id)
+    def acknowledge(self, delivery: AttemptDelivery) -> None:
+        self.acknowledged.append(delivery.attempt_id)
 
 
 class _CancellationUnitOfWork:
@@ -106,6 +122,10 @@ def test_production_composition_exposes_health_and_checks_dependencies(tmp_path:
     settings = ProductionVs001Settings(
         database_url=f"sqlite+pysqlite:///{tmp_path / 'forge.db'}",
         redis_url="redis://unused-for-test",
+        redis_stream_prefix="research-forge:attempts",
+        redis_consumer_group="research-forge-workers",
+        redis_visibility_timeout_seconds=60,
+        redis_max_delivery_attempts=3,
         api_token="test-token",
         schema=_schema(),
         workspace_root=tmp_path / "workspaces",
@@ -164,6 +184,10 @@ def test_production_settings_loads_only_explicit_environment_and_policy_files(tm
     settings = ProductionVs001Settings.from_environment(environment)
 
     assert settings.paper_artifacts == {"paper-toy-001": paper_sha256}
+    assert settings.redis_stream_prefix == "research-forge:attempts"
+    assert settings.redis_consumer_group == "research-forge-workers"
+    assert settings.redis_visibility_timeout_seconds == 60
+    assert settings.redis_max_delivery_attempts == 3
     assert settings.paper_artifact_paths == {"paper-toy-001": paper_root / "toy-paper.pdf"}
     assert settings.broker_socket_path == (tmp_path / "broker" / "sandbox.sock").resolve()
     assert settings.broker_state_root == (tmp_path / "broker" / "completed-results").resolve()
