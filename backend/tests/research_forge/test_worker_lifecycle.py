@@ -38,7 +38,7 @@ class _Ids:
         return f"{kind}-{self.value}"
 
 
-def _seed_attempt(uow: InMemoryUnitOfWork, clock: _MutableClock) -> Attempt:
+def _seed_attempt(uow: InMemoryUnitOfWork, clock: _MutableClock, task_type: TaskType = TaskType.BASELINE_REPRODUCTION) -> Attempt:
     mission = Mission.create(
         mission_id=MissionId("mission-1"),
         spec_sha256="a" * 64,
@@ -46,7 +46,7 @@ def _seed_attempt(uow: InMemoryUnitOfWork, clock: _MutableClock) -> Attempt:
         created_at=clock.now(),
     )
     mission.mark_ready()
-    task = Task(TaskId("task-1"), mission.mission_id, TaskType.BASELINE_REPRODUCTION, clock.now())
+    task = Task(TaskId("task-1"), mission.mission_id, task_type, clock.now())
     attempt = Attempt(AttemptId("attempt-1"), task.task_id, 1, 0, clock.now())
     with uow:
         uow.add_mission(mission)
@@ -189,6 +189,24 @@ def test_reconciler_requeues_each_stale_operation_once_through_the_outbox() -> N
     assert second.operation_ids == ()
     assert uow.outbox[-1].topic == "baseline_attempt.ready"
     assert uow.outbox[-1].payload["attempt_id"] == "attempt-1"
+
+
+def test_reconciler_preserves_the_repair_attempt_delivery_topic() -> None:
+    clock = _MutableClock()
+    uow = InMemoryUnitOfWork()
+    _seed_attempt(uow, clock, TaskType.REPAIR_CANDIDATE)
+    with uow:
+        uow.add_operation(Operation(
+            operation_id="operation-repair", idempotency_key="attempt-1:candidate", attempt_id=AttemptId("attempt-1"),
+            operation_type=OperationType.CANDIDATE_COMMIT, input_hash="a" * 64, lease_epoch=1,
+            target_ref_or_path="candidate", created_at=clock.now(), updated_at=clock.now(),
+        ))
+        uow.commit()
+    clock.advance(61)
+
+    ReconcileStaleOperations(unit_of_work=uow, clock=clock, id_generator=_Ids(), stale_after=timedelta(seconds=60)).execute()
+
+    assert uow.outbox[-1].topic == "repair_attempt.ready"
 
 
 def test_mission_state_machine_refuses_skipped_completion() -> None:

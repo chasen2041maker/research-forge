@@ -8,7 +8,7 @@ from datetime import timedelta
 from research_forge.application.ports.system import Clock, IdGenerator
 from research_forge.application.ports.unit_of_work import UnitOfWork
 from research_forge.domain.execution import OperationStatus
-from research_forge.domain.mission import AuditEvent, OutboxEvent
+from research_forge.domain.mission import AuditEvent, OutboxEvent, TaskType
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,13 +38,20 @@ class ReconcileStaleOperations:
             for operation in operations:
                 operation.request_recovery(now)
                 attempt_id = str(operation.attempt_id)
+                attempt = self._unit_of_work.get_attempt(attempt_id)
+                if attempt is None:
+                    raise RuntimeError(f"Operation {operation.operation_id} references a missing Attempt.")
+                task = self._unit_of_work.get_task(str(attempt.task_id))
+                if task is None:
+                    raise RuntimeError(f"Operation {operation.operation_id} references a missing Task.")
+                topic = "baseline_attempt.ready" if task.task_type is TaskType.BASELINE_REPRODUCTION else "repair_attempt.ready"
                 self._unit_of_work.add_audit_event(AuditEvent(
                     event_id=self._id_generator.new("audit"), aggregate_type="operation", aggregate_id=operation.operation_id,
                     event_type="operation.recovery_requested", occurred_at=now,
                     data={"attempt_id": attempt_id, "idempotency_key": operation.idempotency_key},
                 ))
                 self._unit_of_work.add_outbox_event(OutboxEvent(
-                    event_id=self._id_generator.new("outbox"), topic="baseline_attempt.ready", aggregate_id=attempt_id,
+                    event_id=self._id_generator.new("outbox"), topic=topic, aggregate_id=attempt_id,
                     occurred_at=now, payload={"attempt_id": attempt_id, "operation_id": operation.operation_id},
                 ))
             self._unit_of_work.commit()
