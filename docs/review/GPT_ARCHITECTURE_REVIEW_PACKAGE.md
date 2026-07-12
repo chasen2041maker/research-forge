@@ -1,5 +1,7 @@
 # Research Forge v0.1 — GPT 第二轮架构送审包
 
+> **Review status：Completed on 2026-07-12.** 第二轮结论仍为 `CONDITIONAL GO`，风险显著下降。三个剩余 Blocker 已在架构文档、Spec 和 ADR 中处理：ReproductionSpec v1、DecisionEngine Adapter 边界、DB/Git/CAS Operation Ledger。下一步不再进行第三轮大文档循环，而是实现无 LLM Baseline Vertical Slice。
+>
 > 用途：对首轮审查后的收缩方案和代码分层规范进行第二轮严格审查。
 >
 > 主设计：`docs/architecture/AGENT_CAPABILITY_PLATFORM_BLUEPRINT.md`
