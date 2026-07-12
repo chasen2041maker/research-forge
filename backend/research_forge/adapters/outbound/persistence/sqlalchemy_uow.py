@@ -54,9 +54,11 @@ class SqlAlchemyUnitOfWork:
         self._missions: dict[str, Mission] = {}
         self._mission_versions: dict[str, int | None] = {}
         self._tasks: dict[str, Task] = {}
+        self._task_versions: dict[str, int | None] = {}
         self._attempts: dict[str, Attempt] = {}
         self._attempt_versions: dict[str, int | None] = {}
         self._operations: dict[str, Operation] = {}
+        self._operation_versions: dict[str, int | None] = {}
         self._artifacts: dict[str, ArtifactRegistration] = {}
         self._metrics: dict[str, MetricRecord] = {}
         self._claims: dict[str, Claim] = {}
@@ -65,6 +67,7 @@ class SqlAlchemyUnitOfWork:
         self._outbox: dict[str, OutboxEvent] = {}
         self._bundles: dict[str, ArtifactRegistration] = {}
         self._approvals: dict[str, Approval] = {}
+        self._approval_versions: dict[str, int | None] = {}
 
     def __enter__(self) -> Self:
         if self._session is not None:
@@ -92,6 +95,7 @@ class SqlAlchemyUnitOfWork:
     def add_task(self, task: Task) -> None:
         self._require_session()
         self._tasks[str(task.task_id)] = task
+        self._task_versions.setdefault(str(task.task_id), None)
 
     def add_attempt(self, attempt: Attempt) -> None:
         self._require_session()
@@ -109,6 +113,7 @@ class SqlAlchemyUnitOfWork:
     def add_operation(self, operation: Operation) -> None:
         self._require_session()
         self._operations[operation.operation_id] = operation
+        self._operation_versions.setdefault(operation.operation_id, None)
 
     def add_artifact(self, registration: ArtifactRegistration) -> None:
         self._require_session()
@@ -133,6 +138,7 @@ class SqlAlchemyUnitOfWork:
     def add_approval(self, approval: Approval) -> None:
         self._require_session()
         self._approvals[approval.approval_id] = approval
+        self._approval_versions.setdefault(approval.approval_id, None)
 
     def get_mission(self, mission_id: str) -> Mission | None:
         if mission_id in self._missions:
@@ -165,8 +171,10 @@ class SqlAlchemyUnitOfWork:
             task_type=TaskType(row.task_type),
             created_at=row.created_at,
             status=TaskStatus(row.status),
+            version=row.version,
         )
         self._tasks[task_id] = task
+        self._task_versions[task_id] = row.version
         return task
 
     def get_tasks_for_mission(self, mission_id: str) -> tuple[Task, ...]:
@@ -216,6 +224,7 @@ class SqlAlchemyUnitOfWork:
             return cached
         operation = self._operation_from_row(row)
         self._operations[operation.operation_id] = operation
+        self._operation_versions[operation.operation_id] = row.version
         return operation
 
     def get_stale_operations(
@@ -229,7 +238,15 @@ class SqlAlchemyUnitOfWork:
             .order_by(OperationRow.updated_at, OperationRow.operation_id)
             .limit(limit)
         )
-        return tuple(self._operations.setdefault(row.operation_id, self._operation_from_row(row)) for row in rows)
+        operations: list[Operation] = []
+        for row in rows:
+            operation = self._operations.get(row.operation_id)
+            if operation is None:
+                operation = self._operation_from_row(row)
+                self._operations[operation.operation_id] = operation
+                self._operation_versions[operation.operation_id] = row.version
+            operations.append(operation)
+        return tuple(operations)
 
     def get_artifact_by_operation_id(self, operation_id: str) -> ArtifactRegistration | None:
         cached = self._artifacts.get(operation_id)
@@ -333,8 +350,10 @@ class SqlAlchemyUnitOfWork:
             status=ApprovalStatus(row.status),
             decided_at=row.decided_at,
             decided_by=row.decided_by,
+            version=row.version,
         )
         self._approvals[approval_id] = approval
+        self._approval_versions[approval_id] = row.version
         return approval
 
     def get_approvals_for_mission(self, mission_id: str) -> tuple[Approval, ...]:
@@ -384,8 +403,7 @@ class SqlAlchemyUnitOfWork:
         session.flush()
         self._flush_attempts(session)
         session.flush()
-        for operation in self._operations.values():
-            session.merge(self._operation_row(operation))
+        self._flush_operations(session)
         session.flush()
         for artifact in self._artifacts.values():
             session.merge(self._artifact_row(artifact))
@@ -409,8 +427,7 @@ class SqlAlchemyUnitOfWork:
             )
         for mission_id, bundle in self._bundles.items():
             session.merge(self._bundle_row(mission_id, bundle))
-        for approval in self._approvals.values():
-            session.merge(self._approval_row(approval))
+        self._flush_approvals(session)
         session.flush()
         session.commit()
         self._committed = True
@@ -441,16 +458,25 @@ class SqlAlchemyUnitOfWork:
                     raise OptimisticLockConflict(f"Mission {mission_id} was updated by another transaction.")
 
     def _flush_tasks(self, session: Session) -> None:
-        for task in self._tasks.values():
-            session.merge(
-                TaskRow(
-                    task_id=str(task.task_id),
-                    mission_id=str(task.mission_id),
-                    task_type=str(task.task_type),
-                    status=str(task.status),
-                    created_at=task.created_at,
+        for task_id, task in self._tasks.items():
+            values = {
+                "mission_id": str(task.mission_id),
+                "task_type": str(task.task_type),
+                "status": str(task.status),
+                "version": task.version,
+                "created_at": task.created_at,
+            }
+            original_version = self._task_versions[task_id]
+            if original_version is None:
+                session.add(TaskRow(task_id=task_id, **values))
+            elif task.version != original_version:
+                result = session.execute(
+                    update(TaskRow)
+                    .where(TaskRow.task_id == task_id, TaskRow.version == original_version)
+                    .values(**values)
                 )
-            )
+                if result.rowcount != 1:
+                    raise OptimisticLockConflict(f"Task {task_id} was updated by another transaction.")
 
     def _flush_attempts(self, session: Session) -> None:
         for attempt_id, attempt in self._attempts.items():
@@ -479,6 +505,64 @@ class SqlAlchemyUnitOfWork:
                 if result.rowcount != 1:
                     raise OptimisticLockConflict(f"Attempt {attempt_id} lease/version is stale.")
 
+    def _flush_operations(self, session: Session) -> None:
+        for operation_id, operation in self._operations.items():
+            values = {
+                "idempotency_key": operation.idempotency_key,
+                "attempt_id": str(operation.attempt_id),
+                "operation_type": str(operation.operation_type),
+                "input_hash": operation.input_hash,
+                "expected_parent_sha": operation.expected_parent_sha,
+                "target_ref_or_path": operation.target_ref_or_path,
+                "external_result_ref": operation.external_result_ref,
+                "lease_epoch": operation.lease_epoch,
+                "status": str(operation.status),
+                "version": operation.version,
+                "error_code": operation.error_code,
+                "created_at": operation.created_at,
+                "updated_at": operation.updated_at,
+            }
+            original_version = self._operation_versions[operation_id]
+            if original_version is None:
+                session.add(OperationRow(operation_id=operation_id, **values))
+            elif operation.version != original_version:
+                result = session.execute(
+                    update(OperationRow)
+                    .where(OperationRow.operation_id == operation_id, OperationRow.version == original_version)
+                    .values(**values)
+                )
+                if result.rowcount != 1:
+                    raise OptimisticLockConflict(f"Operation {operation_id} was updated by another transaction.")
+
+    def _flush_approvals(self, session: Session) -> None:
+        for approval_id, approval in self._approvals.items():
+            values = {
+                "mission_id": str(approval.mission_id),
+                "task_id": str(approval.task_id),
+                "attempt_id": str(approval.attempt_id),
+                "action_type": approval.action_type,
+                "action_hash": approval.action_hash,
+                "risk_level": approval.risk_level,
+                "scope": approval.scope,
+                "requested_at": approval.requested_at,
+                "expires_at": approval.expires_at,
+                "status": str(approval.status),
+                "version": approval.version,
+                "decided_at": approval.decided_at,
+                "decided_by": approval.decided_by,
+            }
+            original_version = self._approval_versions[approval_id]
+            if original_version is None:
+                session.add(ApprovalRow(approval_id=approval_id, **values))
+            elif approval.version != original_version:
+                result = session.execute(
+                    update(ApprovalRow)
+                    .where(ApprovalRow.approval_id == approval_id, ApprovalRow.version == original_version)
+                    .values(**values)
+                )
+                if result.rowcount != 1:
+                    raise OptimisticLockConflict(f"Approval {approval_id} was updated by another transaction.")
+
     @staticmethod
     def _operation_from_row(row: OperationRow) -> Operation:
         return Operation(
@@ -495,6 +579,7 @@ class SqlAlchemyUnitOfWork:
             external_result_ref=row.external_result_ref,
             error_code=row.error_code,
             status=OperationStatus(row.status),
+            version=row.version,
         )
 
     @staticmethod
@@ -538,6 +623,7 @@ class SqlAlchemyUnitOfWork:
             external_result_ref=operation.external_result_ref,
             lease_epoch=operation.lease_epoch,
             status=str(operation.status),
+            version=operation.version,
             error_code=operation.error_code,
             created_at=operation.created_at,
             updated_at=operation.updated_at,
@@ -650,6 +736,7 @@ class SqlAlchemyUnitOfWork:
             requested_at=approval.requested_at,
             expires_at=approval.expires_at,
             status=str(approval.status),
+            version=approval.version,
             decided_at=approval.decided_at,
             decided_by=approval.decided_by,
         )
@@ -663,9 +750,11 @@ class SqlAlchemyUnitOfWork:
         self._missions = {}
         self._mission_versions = {}
         self._tasks = {}
+        self._task_versions = {}
         self._attempts = {}
         self._attempt_versions = {}
         self._operations = {}
+        self._operation_versions = {}
         self._artifacts = {}
         self._metrics = {}
         self._claims = {}
@@ -675,3 +764,4 @@ class SqlAlchemyUnitOfWork:
         self._published_outbox_at: dict[str, datetime] = {}
         self._bundles = {}
         self._approvals = {}
+        self._approval_versions = {}

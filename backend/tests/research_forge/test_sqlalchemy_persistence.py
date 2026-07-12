@@ -110,6 +110,82 @@ def test_sqlalchemy_uow_rejects_a_stale_mission_version() -> None:
             first.commit()
 
 
+def test_sqlalchemy_uow_rejects_stale_task_operation_and_approval_versions() -> None:
+    session_factory = _session_factory()
+    now = datetime(2026, 7, 12, tzinfo=timezone.utc)
+    _seed(SqlAlchemyUnitOfWork(session_factory), now)
+    operation = Operation(
+        operation_id="operation-1",
+        idempotency_key="attempt-1:sandbox",
+        attempt_id=AttemptId("attempt-1"),
+        operation_type=OperationType.SANDBOX_RUN,
+        input_hash="a" * 64,
+        lease_epoch=1,
+        target_ref_or_path="worktree",
+        created_at=now,
+        updated_at=now,
+    )
+    approval = Approval(
+        approval_id="approval-1",
+        mission_id=MissionId("mission-1"),
+        task_id=TaskId("task-1"),
+        attempt_id=AttemptId("attempt-1"),
+        action_type="CANDIDATE_COMMIT",
+        action_hash="b" * 64,
+        risk_level="HIGH",
+        scope="CANDIDATE_COMMIT",
+        requested_at=now,
+        expires_at=now + timedelta(minutes=5),
+    )
+    seed = SqlAlchemyUnitOfWork(session_factory)
+    with seed:
+        seed.add_operation(operation)
+        seed.add_approval(approval)
+        seed.commit()
+
+    first = SqlAlchemyUnitOfWork(session_factory)
+    second = SqlAlchemyUnitOfWork(session_factory)
+    with first:
+        task = first.get_task("task-1")
+        assert task is not None
+        task.start()
+        with second:
+            competing = second.get_task("task-1")
+            assert competing is not None
+            competing.start()
+            second.commit()
+        with pytest.raises(OptimisticLockConflict, match="Task task-1"):
+            first.commit()
+
+    first = SqlAlchemyUnitOfWork(session_factory)
+    second = SqlAlchemyUnitOfWork(session_factory)
+    with first:
+        pending = first.get_operation_by_idempotency_key("attempt-1:sandbox")
+        assert pending is not None
+        pending.begin(now)
+        with second:
+            competing = second.get_operation_by_idempotency_key("attempt-1:sandbox")
+            assert competing is not None
+            competing.begin(now)
+            second.commit()
+        with pytest.raises(OptimisticLockConflict, match="Operation operation-1"):
+            first.commit()
+
+    first = SqlAlchemyUnitOfWork(session_factory)
+    second = SqlAlchemyUnitOfWork(session_factory)
+    with first:
+        pending = first.get_approval("approval-1")
+        assert pending is not None
+        pending.approve(decided_by="reviewer-a", now=pending.requested_at)
+        with second:
+            competing = second.get_approval("approval-1")
+            assert competing is not None
+            competing.approve(decided_by="reviewer-b", now=competing.requested_at)
+            second.commit()
+        with pytest.raises(OptimisticLockConflict, match="Approval approval-1"):
+            first.commit()
+
+
 def test_sqlalchemy_uow_lists_only_stale_reconcilable_operations() -> None:
     session_factory = _session_factory()
     unit_of_work = SqlAlchemyUnitOfWork(session_factory)

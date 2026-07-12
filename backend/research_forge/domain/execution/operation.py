@@ -43,11 +43,13 @@ class Operation:
     external_result_ref: str | None = None
     error_code: str | None = None
     status: OperationStatus = OperationStatus.PREPARED
+    version: int = 0
 
     def begin(self, now: datetime) -> None:
         if self.status is OperationStatus.PREPARED:
             self.status = OperationStatus.EXECUTING
             self.updated_at = now
+            self.version += 1
             return
         if self.status is not OperationStatus.EXECUTING:
             raise OperationConflict(f"Operation {self.operation_id} cannot begin from {self.status}.")
@@ -57,9 +59,12 @@ class Operation:
             raise OperationConflict(f"Operation {self.operation_id} cannot succeed from {self.status}.")
         if self.external_result_ref is not None and self.external_result_ref != external_result_ref:
             raise OperationConflict("Operation result ref conflicts with completed operation.")
+        if self.status is OperationStatus.SUCCEEDED:
+            return
         self.status = OperationStatus.SUCCEEDED
         self.external_result_ref = external_result_ref
         self.updated_at = now
+        self.version += 1
 
     def fail(self, *, error_code: str, now: datetime, manual_recovery: bool = False) -> None:
         if self.status is OperationStatus.SUCCEEDED:
@@ -67,9 +72,11 @@ class Operation:
         self.status = OperationStatus.MANUAL_RECOVERY if manual_recovery else OperationStatus.FAILED
         self.error_code = error_code
         self.updated_at = now
+        self.version += 1
 
     def request_recovery(self, now: datetime) -> None:
         """Record a bounded redelivery request without changing the original effect identity."""
         if self.status not in {OperationStatus.PREPARED, OperationStatus.EXECUTING}:
             raise OperationConflict(f"Operation {self.operation_id} cannot be reconciled from {self.status}.")
         self.updated_at = now
+        self.version += 1

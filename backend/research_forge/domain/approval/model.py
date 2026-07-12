@@ -32,23 +32,27 @@ class Approval:
     status: ApprovalStatus = ApprovalStatus.PENDING
     decided_at: datetime | None = None
     decided_by: str | None = None
+    version: int = 0
 
     def approve(self, *, decided_by: str, now: datetime) -> None:
         self._ensure_pending(now)
         self.status = ApprovalStatus.APPROVED
         self.decided_at = now
         self.decided_by = decided_by
+        self.version += 1
 
     def reject(self, *, decided_by: str, now: datetime) -> None:
         self._ensure_pending(now)
         self.status = ApprovalStatus.REJECTED
         self.decided_at = now
         self.decided_by = decided_by
+        self.version += 1
 
     def expire(self, now: datetime) -> None:
         if self.status is ApprovalStatus.PENDING and self.expires_at <= now:
             self.status = ApprovalStatus.EXPIRED
             self.decided_at = now
+            self.version += 1
 
     def _ensure_pending(self, now: datetime) -> None:
         self.expire(now)

@@ -17,8 +17,8 @@ capabilities:
     absent: It does not discover orphan CAS bytes, existing Git commits, or missing database references.
   worker_lease_and_cancellation:
     status: partial
-    implemented: Mission and Attempt use optimistic versions, leases, heartbeats, and cancellation paths.
-    absent: Task, Operation, and Approval do not all have the governance document's versioned concurrency contract.
+    implemented: Mission, Task, Attempt, Operation, and Approval use persisted compare-and-swap versions; Attempt also has leases, heartbeats, and cancellation paths.
+    absent: Cross-process execution recovery is still bounded by the queue and broker limitations below.
   sandbox_broker_recovery:
     status: partial
     implemented: Duplicate completion can be recovered while the same broker process is alive.

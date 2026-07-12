@@ -8,8 +8,8 @@ scope: research_forge
 
 ## Status
 
-Accepted — partially implemented. Mission and Attempt have version/lease behavior; the documented
-uniform concurrency contract for Task, Operation, and Approval remains incomplete.
+Accepted — partially implemented. Mission, Task, Attempt, Operation, and Approval have persisted
+compare-and-swap versions; broker restart recovery and queue delivery semantics remain incomplete.
 
 ## Context
 

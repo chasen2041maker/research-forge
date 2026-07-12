@@ -147,6 +147,7 @@ class Task:
     task_type: TaskType
     created_at: datetime
     status: TaskStatus = TaskStatus.PENDING
+    version: int = 0
 
     def start(self) -> None:
         self._transition(TaskStatus.RUNNING, {TaskStatus.PENDING, TaskStatus.RETRYABLE})
@@ -167,6 +168,7 @@ class Task:
         if self.status not in allowed:
             raise InvalidTaskTransition(f"Task cannot transition from {self.status} to {target}.")
         self.status = target
+        self.version += 1
 
 
 @dataclass(slots=True)
