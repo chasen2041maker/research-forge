@@ -11,12 +11,44 @@ Reviewed: 2026-07-12
 - Timeouts and cancellation use `docker stop --time 2`, then `docker kill` if necessary, then `docker rm -f`. A successfully persisted result is written before its container is removed. A later retry removes an orphaned named container only after its immutable label is verified.
 - Docker log collection drains both pipes while retaining no more than the requested total log budget.
 
+## Changed files
+
+- `backend/research_forge/adapters/outbound/sandbox/broker_state.py` — durable state schema, exclusive request binding, atomic persistence, integrity validation, and containment/link protections.
+- `backend/research_forge/adapters/outbound/sandbox/docker_broker.py` — deterministic named-container lifecycle, recovery, conflict detection, bounded logs, and idempotent cancellation.
+- `backend/research_forge/bootstrap/production.py`, `backend/research_forge/bootstrap/sandbox_broker.py`, and `deploy/research-forge/research-forge.env.example` — `RF_BROKER_STATE_ROOT` production composition.
+- `backend/tests/research_forge/test_broker_state.py`, `test_sandbox_boundary.py`, and `test_docker_e2e.py` — durable-state unit coverage plus Linux Docker lifecycle/process coverage without `chmod 777`.
+- `docs/review/SANDBOX_RUNTIME_COMPARISON.md`, ADR-003, and the deployment runbook — external comparison, state ownership, GC, and rollback policy.
+
+The exact `python -m mypy backend/research_forge` gate also exposed pre-existing typing-only issues. `backend/research_forge/adapters/outbound/persistence/sqlalchemy_uow.py` now explicitly treats ORM update results as `CursorResult`, and `mypy.ini` disables only the untyped-import diagnostic for the one supported `jsonschema` consumer. Neither changes runtime behavior.
+
+## External research conclusions
+
+The detailed source links and comparison are in [SANDBOX_RUNTIME_COMPARISON.md](SANDBOX_RUNTIME_COMPARISON.md). OpenHands supports a narrow execution-environment boundary; PaperBench separates rollout, reproduction, and grading; DeerFlow demonstrates stable sandbox identity and idempotent lifecycle management; and Agent Zero keeps application and Docker runtime responsibilities separate. Research Forge adopts only stable identity, guarded persistence, and isolation boundaries; it does not import their agent runtimes, service topology, or licenses.
+
+## Recovery algorithm
+
+1. Bind an operation ID to one canonical request payload/hash using exclusive durable creation.
+2. Return a validated durable result if one exists; safely remove a matching leftover container.
+3. Otherwise inspect the deterministic container name. Matching running/exited containers are adopted; a mismatched immutable label fails closed.
+4. Wait, collect bounded logs and declared output bytes, persist all result bytes and hashes, then remove the container.
+5. On cancellation or timeout, stop for two seconds, kill if still present, then force-remove. No success result is persisted on that path.
+
+## Added test coverage
+
+- Durable state recovery from a fresh store, input conflict, request/result tamper detection, and symlink rejection.
+- Command construction and cancellation order.
+- Real Unix-socket Broker A/B recovery after a completed Docker operation.
+- Real Broker A interruption while the container runs, then Broker B adoption.
+- Two independently started broker processes converging on one concurrent operation.
+- Same operation ID with different input rejection, cancellation cleanup, and timeout cleanup.
+
 ## Evidence from this workspace
 
 | Check | Result |
 | --- | --- |
-| `python -m pytest backend/tests/research_forge -q` | `68 passed, 9 skipped` |
+| `python -m pytest backend/tests/research_forge -q` | `69 passed, 9 skipped` |
 | `python -m ruff check backend/research_forge backend/tests/research_forge` | Passed |
+| `python -m mypy backend/research_forge` | Passed: 94 source files |
 | CI-equivalent mypy command | Passed: 94 source files |
 | `python backend/scripts/check_research_forge_secrets.py` | Passed |
 | Frozen evaluator | `31/31` passed; manifest SHA-256 `7e66c8a9724e0208f9055dae8788d0c83577a36252b1e8f3bdd67202bf398aa2` |
@@ -38,3 +70,7 @@ The gate covers normal completion followed by a broker restart, two real broker 
 Broker State is recovery material, not a second business database: PostgreSQL owns Operation status, CAS owns registered artifacts, and Git owns commits. An operator may remove an operation directory only after terminal PostgreSQL reconciliation, verified CAS registration, and no unpublished Outbox work; the deployment runbook records that audited procedure.
 
 Remaining operational risks are deliberately fail-closed: corrupt recovery bytes or a request/hash mismatch require investigation rather than an automatic re-run; local disk capacity and backup policy remain host-operator responsibilities; and a multi-host deployment needs host-affine routing or a separately designed shared state store with equivalent atomic-file guarantees. Linux Docker execution remains the final environment-specific acceptance step until the command above passes in CI or on a supported host.
+
+## Release-gate decision
+
+**Not yet satisfied on this host.** The implementation, static checks, unit tests, and frozen regression evaluation pass. The required Linux Docker acceptance gate is present but has not run because this Windows machine has neither Docker nor an installed WSL distribution. This is intentionally recorded as incomplete rather than substituted with mocks or skipped tests.
