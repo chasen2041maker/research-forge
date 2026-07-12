@@ -90,6 +90,41 @@ def test_validator_canonicalizes_and_hashes_the_frozen_contract(
     assert accepted.sha256 == hashlib.sha256(accepted.normalized_json.encode("utf-8")).hexdigest()
 
 
+def test_validator_accepts_the_bounded_one_candidate_repair_contract(
+    validator: JsonSchemaReproductionSpecValidator,
+) -> None:
+    spec = _valid_spec()
+    spec["mode"] = "repair"
+    spec["change_budget"] = {
+        "allowed_paths": ["evaluate.py"],
+        "max_files": 1,
+        "max_changed_lines": 20,
+        "max_candidate_commits": 1,
+        "max_candidate_runs": 1,
+    }
+
+    accepted = validator.validate(spec)
+
+    assert accepted.payload["mode"] == "repair"
+
+
+def test_validator_rejects_repair_with_more_than_one_candidate_run(
+    validator: JsonSchemaReproductionSpecValidator,
+) -> None:
+    spec = _valid_spec()
+    spec["mode"] = "repair"
+    spec["change_budget"] = {
+        "allowed_paths": ["evaluate.py"],
+        "max_files": 1,
+        "max_changed_lines": 20,
+        "max_candidate_commits": 1,
+        "max_candidate_runs": 0,
+    }
+
+    with pytest.raises(ReproductionSpecValidationError, match="max_candidate_runs=1"):
+        validator.validate(spec)
+
+
 @pytest.mark.parametrize(
     ("mutate", "message"),
     [
