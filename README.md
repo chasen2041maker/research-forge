@@ -26,7 +26,7 @@ It does **not** yet implement the new v0.1 architecture described below:
 
 The old README and its historical feature descriptions are preserved at:
 
-[旧版系统说明](./docs/legacy/旧版系统说明.md)
+[旧版系统说明](./docs/旧版资料/旧版系统说明.md)
 
 ## v0.1 scope
 
@@ -53,21 +53,21 @@ v0.1 deliberately excludes Browser automation, MCP, first-class Skills, Reviewer
 
 ## Architecture documents
 
-- [v0.1 科研复现智能体架构蓝图](./docs/architecture/科研复现智能体架构蓝图.md)
-- [代码分层与架构治理规范](./docs/architecture/代码分层与架构治理规范.md)
-- [科研复现任务规范 v1](./docs/specs/科研复现任务规范_v1.md)
-- [科研复现任务规范 JSON Schema](./docs/specs/科研复现任务规范_v1.schema.json)
-- [第一条无 LLM 基线复现纵向切片](./docs/specs/基线复现纵向切片规范.md)
-- [GPT 第二轮架构送审包](./docs/review/GPT第二轮架构送审包.md)
-- [GPT 第二轮架构审查结果](./docs/review/GPT第二轮架构审查结果.md)
+- [v0.1 科研复现智能体架构蓝图](./docs/架构设计/科研复现智能体架构蓝图.md)
+- [代码分层与架构治理规范](./docs/架构设计/代码分层与架构治理规范.md)
+- [科研复现任务规范 v1](./docs/规范/科研复现任务规范_v1.md)
+- [科研复现任务规范 JSON Schema](./docs/规范/科研复现任务规范_v1.schema.json)
+- [第一条无 LLM 基线复现纵向切片](./docs/规范/基线复现纵向切片规范.md)
+- [GPT 第二轮架构送审包](./docs/架构审查/GPT第二轮架构送审包.md)
+- [GPT 第二轮架构审查结果](./docs/架构审查/GPT第二轮架构审查结果.md)
 
 ### Accepted ADRs
 
-- [架构决策记录 001：分层架构](./docs/adr/架构决策记录-001-分层架构.md)
-- [架构决策记录 002：事实来源](./docs/adr/架构决策记录-002-事实来源.md)
-- [架构决策记录 003：跨存储操作](./docs/adr/架构决策记录-003-跨存储操作.md)
-- [架构决策记录 004：工作进程生命周期](./docs/adr/架构决策记录-004-工作进程生命周期.md)
-- [架构决策记录 005：沙箱平台](./docs/adr/架构决策记录-005-沙箱平台.md)
+- [架构决策记录 001：分层架构](./docs/架构决策记录/架构决策记录-001-分层架构.md)
+- [架构决策记录 002：事实来源](./docs/架构决策记录/架构决策记录-002-事实来源.md)
+- [架构决策记录 003：跨存储操作](./docs/架构决策记录/架构决策记录-003-跨存储操作.md)
+- [架构决策记录 004：工作进程生命周期](./docs/架构决策记录/架构决策记录-004-工作进程生命周期.md)
+- [架构决策记录 005：沙箱平台](./docs/架构决策记录/架构决策记录-005-沙箱平台.md)
 
 ## First implementation milestone
 

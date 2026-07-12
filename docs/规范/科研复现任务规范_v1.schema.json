@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/chasen2041maker/research-forge/docs/specs/%E7%A7%91%E7%A0%94%E5%A4%8D%E7%8E%B0%E4%BB%BB%E5%8A%A1%E8%A7%84%E8%8C%83_v1.schema.json",
+  "$id": "https://github.com/chasen2041maker/research-forge/docs/%E8%A7%84%E8%8C%83/%E7%A7%91%E7%A0%94%E5%A4%8D%E7%8E%B0%E4%BB%BB%E5%8A%A1%E8%A7%84%E8%8C%83_v1.schema.json",
   "title": "Research Forge ReproductionSpec v1",
   "type": "object",
   "additionalProperties": false,
