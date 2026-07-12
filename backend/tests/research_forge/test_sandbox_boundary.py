@@ -101,6 +101,7 @@ def test_docker_command_applies_offline_hardened_policy_without_docker_socket(tm
         command.index("--security-opt") : command.index("--security-opt") + 2
     ]
     assert "docker.sock" not in " ".join(command)
+    assert ",rw" not in command[command.index("--mount") + 1]
     assert command[-4:] == ["python", "evaluate.py", "--output", "metrics.json"]
 
 

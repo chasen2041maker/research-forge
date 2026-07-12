@@ -108,7 +108,7 @@ class DockerSandboxBroker:
             "--tmpfs",
             "/tmp:rw,noexec,nosuid,size=64m",
             "--mount",
-            f"type=bind,src={worktree},dst=/workspace,rw",
+            f"type=bind,src={worktree},dst=/workspace",
             "--workdir",
             "/workspace" if working_directory == worktree else f"/workspace/{working_directory.relative_to(worktree)}",
             "--label",
