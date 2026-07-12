@@ -7,8 +7,10 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from research_forge.adapters.outbound.persistence import InMemoryUnitOfWork
+from research_forge.adapters.outbound.queue import ImmediateQueue
 from research_forge.application.use_cases import (
     ClaimBaselineAttempt,
+    PublishPendingOutbox,
     ReconcileStaleOperations,
     RenewAttemptLease,
     RequestMissionCancellation,
@@ -189,6 +191,11 @@ def test_reconciler_requeues_each_stale_operation_once_through_the_outbox() -> N
     assert second.operation_ids == ()
     assert uow.outbox[-1].topic == "baseline_attempt.ready"
     assert uow.outbox[-1].payload["attempt_id"] == "attempt-1"
+
+    queue = ImmediateQueue()
+    PublishPendingOutbox(unit_of_work=uow, task_queue=queue, clock=clock).execute()
+
+    assert queue.receive() == "attempt-1"
 
 
 def test_reconciler_preserves_the_repair_attempt_delivery_topic() -> None:
