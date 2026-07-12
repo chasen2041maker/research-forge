@@ -112,7 +112,7 @@ class DockerSandboxBroker:
         if state is None:
             self._prepare_output_paths(request)
             try:
-                self._docker(tuple(self.build_command(request)))
+                self._docker(tuple(self.build_command(request)[1:]))
             except CalledProcessError as exc:
                 if not self._container_exists(name):
                     raise SandboxUnavailable(

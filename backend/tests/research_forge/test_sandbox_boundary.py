@@ -133,6 +133,34 @@ def test_docker_launch_diagnostic_is_bounded_and_single_line() -> None:
     assert _bounded_diagnostic(None) == "no diagnostic was returned"
 
 
+def test_docker_execution_does_not_pass_the_binary_twice(tmp_path: Path, monkeypatch) -> None:
+    workspace_root = tmp_path / "workspaces"
+    worktree = workspace_root / "mission-1" / "worktrees" / "baseline"
+    worktree.mkdir(parents=True)
+    broker = DockerSandboxBroker(
+        workspace_root=workspace_root,
+        allowed_images={"sha256:" + "a" * 64: "python@sha256:" + "a" * 64},
+    )
+    request = _request(str(worktree))
+    captured: list[tuple[str, ...]] = []
+
+    class _StopAfterLaunch(RuntimeError):
+        pass
+
+    monkeypatch.setattr(broker, "_container_state", lambda name: None)
+
+    def record_launch(arguments: tuple[str, ...], allow_failure: bool = False) -> str:
+        captured.append(arguments)
+        raise _StopAfterLaunch()
+
+    monkeypatch.setattr(broker, "_docker", record_launch)
+
+    with pytest.raises(_StopAfterLaunch):
+        broker._run_container(request)
+
+    assert captured == [tuple(broker.build_command(request)[1:])]
+
+
 def test_sandbox_completion_before_db_finalize_recovers_one_operation() -> None:
     clock = _Clock()
     uow = InMemoryUnitOfWork()
