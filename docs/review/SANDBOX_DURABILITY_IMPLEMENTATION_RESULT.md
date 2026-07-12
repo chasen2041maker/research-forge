@@ -37,6 +37,7 @@ The detailed source links and comparison are in [SANDBOX_RUNTIME_COMPARISON.md](
 
 - Durable state recovery from a fresh store, input conflict, request/result tamper detection, symlink rejection, and cancellation winning the terminal-state race.
 - Unix broker round trip with empty stdout/stderr, preserving valid zero-byte Docker logs.
+- Shared stdout/stderr collection budget, proving runtime log retention cannot exceed `max_log_bytes`.
 - Command construction and cancellation order.
 - Real Unix-socket Broker A/B recovery after a completed Docker operation.
 - Real Broker A interruption while the container runs, then Broker B adoption.

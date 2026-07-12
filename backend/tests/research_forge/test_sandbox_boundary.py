@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from io import BytesIO
 import json
 from pathlib import Path
 
@@ -10,7 +11,7 @@ import pytest
 
 from research_forge.adapters.outbound.persistence import InMemoryUnitOfWork
 from research_forge.adapters.outbound.sandbox import DeterministicFakeSandbox, DockerSandboxBroker
-from research_forge.adapters.outbound.sandbox.docker_broker import _bounded_diagnostic
+from research_forge.adapters.outbound.sandbox.docker_broker import _BoundedLogCollector, _bounded_diagnostic
 from research_forge.application.dto import NetworkPolicy, SandboxResult, SandboxRunRequest
 from research_forge.application.use_cases import (
     CancelBaselineAttempt,
@@ -131,6 +132,19 @@ def test_docker_cancel_uses_stable_name_stop_kill_and_remove(tmp_path: Path, mon
 def test_docker_launch_diagnostic_is_bounded_and_single_line() -> None:
     assert _bounded_diagnostic(b" launch\nfailed " + b"x" * 1_000) == "launch failed " + "x" * 498
     assert _bounded_diagnostic(None) == "no diagnostic was returned"
+
+
+def test_docker_log_collection_uses_one_shared_memory_budget() -> None:
+    collector = _BoundedLogCollector(5)
+
+    collector.drain("stdout", BytesIO(b"abcd"))
+    collector.drain("stderr", BytesIO(b"efgh"))
+
+    stdout, stderr, truncated = collector.result()
+    assert stdout == b"abcd"
+    assert stderr == b"e"
+    assert len(stdout) + len(stderr) == 5
+    assert truncated is True
 
 
 def test_docker_execution_does_not_pass_the_binary_twice(tmp_path: Path, monkeypatch) -> None:
