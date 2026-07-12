@@ -82,3 +82,69 @@ def test_bundle_safe_extractor_rejects_archive_path_escape(tmp_path: Path) -> No
 
     assert result.returncode != 0
     assert not (tmp_path.parent / "escaped.txt").exists()
+
+
+@pytest.mark.parametrize(
+    ("name", "writer", "error"),
+    [
+        (
+            "too-many-members.tar",
+            lambda path: _write_many_members(path),
+            "member count limit",
+        ),
+        (
+            "oversized-member.tar",
+            lambda path: _write_oversized_member(path),
+            "member exceeds size limit",
+        ),
+        (
+            "high-ratio.tar.gz",
+            lambda path: _write_high_ratio_archive(path),
+            "expansion ratio limit",
+        ),
+    ],
+)
+def test_bundle_safe_extractor_rejects_resource_exhaustion_archives(
+    tmp_path: Path,
+    name: str,
+    writer: object,
+    error: str,
+) -> None:
+    archive_path = tmp_path / name
+    assert callable(writer)
+    writer(archive_path)
+    extractor = tmp_path / "safe_extract.py"
+    extractor.write_text(CompleteReproductionMission._safe_extract_script(), encoding="utf-8")
+
+    result = run(
+        ["python", str(extractor), str(archive_path), str(tmp_path / "destination")],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert error in result.stderr
+
+
+def _write_many_members(path: Path) -> None:
+    with tarfile.open(path, "w") as archive:
+        for index in range(10_001):
+            member = tarfile.TarInfo(f"member-{index}")
+            archive.addfile(member, io.BytesIO())
+
+
+def _write_oversized_member(path: Path) -> None:
+    payload = b"x" * (16 * 1024 * 1024 + 1)
+    with tarfile.open(path, "w") as archive:
+        member = tarfile.TarInfo("large.bin")
+        member.size = len(payload)
+        archive.addfile(member, io.BytesIO(payload))
+
+
+def _write_high_ratio_archive(path: Path) -> None:
+    payload = b"0" * (1024 * 1024)
+    with tarfile.open(path, "w:gz") as archive:
+        member = tarfile.TarInfo("compressible.bin")
+        member.size = len(payload)
+        archive.addfile(member, io.BytesIO(payload))

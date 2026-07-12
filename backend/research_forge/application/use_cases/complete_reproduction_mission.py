@@ -257,25 +257,39 @@ import tarfile
 from pathlib import Path
 
 MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
+MAX_ARCHIVE_FILES = 10_000
+MAX_MEMBER_BYTES = 16 * 1024 * 1024
+MAX_EXPANSION_RATIO = 100
 
 archive_path = Path(sys.argv[1]).resolve()
 destination = Path(sys.argv[2]).resolve()
 destination.mkdir(parents=True, exist_ok=True)
+archive_size = archive_path.stat().st_size
+if archive_size > MAX_ARCHIVE_BYTES:
+    raise SystemExit("archive exceeds compressed size limit")
 total = 0
 with tarfile.open(archive_path, "r:*") as archive:
     members = archive.getmembers()
+    if len(members) > MAX_ARCHIVE_FILES:
+        raise SystemExit("archive exceeds member count limit")
     for member in members:
         target = (destination / member.name).resolve()
         try:
             target.relative_to(destination)
         except ValueError as exc:
             raise SystemExit(f"unsafe archive path: {member.name}") from exc
-        if member.issym() or member.islnk() or member.isdev():
+        if member.issym() or member.islnk() or member.isdev() or member.isfifo():
             raise SystemExit(f"unsafe archive member: {member.name}")
+        if not member.isdir() and not member.isfile():
+            raise SystemExit(f"unsupported archive member: {member.name}")
         if member.isfile():
+            if member.size > MAX_MEMBER_BYTES:
+                raise SystemExit("archive member exceeds size limit")
             total += member.size
             if total > MAX_ARCHIVE_BYTES:
                 raise SystemExit("archive exceeds extraction size limit")
+            if total > max(archive_size, 1) * MAX_EXPANSION_RATIO:
+                raise SystemExit("archive exceeds expansion ratio limit")
     for member in members:
         target = (destination / member.name).resolve()
         if member.isdir():
