@@ -1,7 +1,8 @@
 # Baseline Reproduction Vertical Slice
 
-> Slice：VS-001  
-> 决策：第一条新架构链路完全不使用 LLM、LangGraph、Skill、MCP、Reviewer、Writer 和 UI。  
+> Slice：VS-001
+>
+> 决策：第一条新架构链路完全不使用 LLM、LangGraph、Skill、MCP、Reviewer、Writer 和 UI。
 > 目标：先证明状态、恢复、Git、CAS、沙箱和指标真相正确。
 
 ## 1. 固定场景
@@ -257,4 +258,3 @@ bundle/
 - Architecture CI 无违规。
 
 未满足退出条件前，禁止进入第二条 `repair` Slice。
-

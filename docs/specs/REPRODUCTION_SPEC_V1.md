@@ -1,7 +1,8 @@
 # ReproductionSpec v1
 
-> 状态：Frozen for First Vertical Slice  
-> JSON Schema：[`reproduction-spec-v1.schema.json`](./reproduction-spec-v1.schema.json)  
+> 状态：Frozen for First Vertical Slice
+>
+> JSON Schema：[`reproduction-spec-v1.schema.json`](./reproduction-spec-v1.schema.json)
 > 变更规则：不兼容修改必须发布 v2，不得原地改变 v1 语义。
 
 ## 1. 目的
@@ -193,4 +194,3 @@ JSON Schema 负责结构校验；Application Validator 负责以下语义：
 - 改变字段含义、默认权限、执行次数或成功语义必须发布 v2；
 - Bundle 必须保存原始 Spec、规范化 Spec 和 `spec_sha256`；
 - Eval 报告必须记录 Schema 版本和 Spec Hash。
-

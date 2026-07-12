@@ -94,4 +94,3 @@ Reconciler 必须幂等，不猜测模糊 Commit Message。
 ## Rollback
 
 第一条 Slice 可以只实现 `CAS_PUT`、`WORKTREE_CREATE`、`SANDBOX_RUN` 三种 Operation，但所有类型遵守同一生命周期。
-

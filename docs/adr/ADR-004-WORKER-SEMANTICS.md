@@ -89,4 +89,3 @@ RUNNING → CANCELLING → CANCELLED
 ## Rollback
 
 第一条 Slice 可以固定单并发，但仍必须实现 Epoch/Version，不能以“暂时只有一个 Worker”为由删除并发保护。
-

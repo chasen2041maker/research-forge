@@ -83,4 +83,3 @@ Bootstrap → all
 ## Rollback
 
 若 DecisionEngine 只存在一个简单实现且长期不需替换，可将其实现移动到 Application 内部服务，但仍禁止其直接执行副作用。
-
