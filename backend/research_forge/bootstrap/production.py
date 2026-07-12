@@ -67,7 +67,9 @@ class ProductionVs001Settings:
     workspace_root: Path
     artifact_root: Path
     broker_socket_path: Path
+    paper_root: Path
     paper_artifacts: Mapping[str, str]
+    paper_artifact_paths: Mapping[str, Path]
     allowed_images: Mapping[str, str]
     cors_origins: tuple[str, ...]
 
@@ -81,6 +83,12 @@ class ProductionVs001Settings:
         schema = _read_object(Path(_required(values, "RF_SCHEMA_PATH")), "schema")
         policy = _read_object(Path(_required(values, "RF_POLICY_PATH")), "policy")
         paper_artifacts = _string_mapping(policy.get("paper_artifacts"), "policy.paper_artifacts")
+        paper_root = _directory(Path(_required(values, "RF_PAPER_ROOT")), "RF_PAPER_ROOT")
+        paper_artifact_paths = _paper_paths(
+            policy.get("paper_artifact_paths"),
+            paper_root=paper_root,
+            paper_artifacts=paper_artifacts,
+        )
         allowed_images = _string_mapping(policy.get("allowed_images"), "policy.allowed_images")
         if not paper_artifacts:
             raise ProductionConfigurationError("policy.paper_artifacts must contain at least one registered paper.")
@@ -103,7 +111,9 @@ class ProductionVs001Settings:
             broker_socket_path=Path(
                 values.get("RF_BROKER_SOCKET_PATH", "/var/lib/research-forge/broker/sandbox.sock")
             ).resolve(),
+            paper_root=paper_root,
             paper_artifacts=paper_artifacts,
+            paper_artifact_paths=paper_artifact_paths,
             allowed_images=allowed_images,
             cors_origins=cors_origins,
         )
@@ -192,6 +202,7 @@ def build_production_vs001_runtime(
         id_generator=identifiers,
         prerequisite_verifier=PinnedLocalPrerequisiteVerifier(
             paper_artifacts=settings.paper_artifacts,
+            paper_artifact_paths=settings.paper_artifact_paths,
             allowed_image_digests=set(settings.allowed_images),
         ),
     )
@@ -294,3 +305,35 @@ def _string_mapping(value: object, label: str) -> dict[str, str]:
             raise ProductionConfigurationError(f"{label} must be an object of non-empty strings.")
         result[key] = item
     return result
+
+
+def _directory(path: Path, label: str) -> Path:
+    if path.is_symlink() or not path.is_dir():
+        raise ProductionConfigurationError(f"{label} must be an existing non-symlink directory.")
+    return path.resolve()
+
+
+def _paper_paths(
+    value: object,
+    *,
+    paper_root: Path,
+    paper_artifacts: Mapping[str, str],
+) -> dict[str, Path]:
+    configured = _string_mapping(value, "policy.paper_artifact_paths")
+    if set(configured) != set(paper_artifacts):
+        raise ProductionConfigurationError("Paper artifact paths must match registered paper artifact IDs exactly.")
+    resolved: dict[str, Path] = {}
+    for artifact_id, raw_path in configured.items():
+        relative_path = Path(raw_path)
+        if relative_path.is_absolute():
+            raise ProductionConfigurationError("Paper artifact paths must be relative to RF_PAPER_ROOT.")
+        candidate = paper_root / relative_path
+        path = candidate.resolve()
+        try:
+            path.relative_to(paper_root)
+        except ValueError as exc:
+            raise ProductionConfigurationError("Paper artifact path escapes RF_PAPER_ROOT.") from exc
+        if candidate.is_symlink() or path.is_symlink() or not path.is_file():
+            raise ProductionConfigurationError("Registered Paper Artifact file is missing or unsafe.")
+        resolved[artifact_id] = path
+    return resolved

@@ -2,6 +2,9 @@
   "paper_artifacts": {
     "replace-with-registered-paper-id": "replace-with-the-paper-sha256"
   },
+  "paper_artifact_paths": {
+    "replace-with-registered-paper-id": "registered-paper.pdf"
+  },
   "allowed_images": {
     "sha256:replace-with-immutable-image-digest": "registry.example.invalid/repro-runner@sha256:replace-with-immutable-image-digest"
   }

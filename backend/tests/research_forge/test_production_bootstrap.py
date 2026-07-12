@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import pytest
 
 from research_forge.adapters.outbound.sandbox import UnixSandboxBrokerClient
-from research_forge.bootstrap import ProductionVs001Settings, build_production_vs001_runtime
+from research_forge.bootstrap import (
+    ProductionConfigurationError,
+    ProductionVs001Settings,
+    build_production_vs001_runtime,
+)
 
 
 class _Redis:
@@ -52,7 +58,9 @@ def test_production_composition_exposes_health_and_checks_dependencies(tmp_path:
         workspace_root=tmp_path / "workspaces",
         artifact_root=tmp_path / "cas",
         broker_socket_path=tmp_path / "broker" / "sandbox.sock",
+        paper_root=tmp_path / "papers",
         paper_artifacts={"paper-toy-001": "a" * 64},
+        paper_artifact_paths={},
         allowed_images={"sha256:" + "b" * 64: "example.invalid/repro@sha256:" + "b" * 64},
         cors_origins=("http://localhost:3000",),
     )
@@ -69,31 +77,51 @@ def test_production_composition_exposes_health_and_checks_dependencies(tmp_path:
 def test_production_settings_loads_only_explicit_environment_and_policy_files(tmp_path: Path) -> None:
     schema_path = tmp_path / "schema.json"
     policy_path = tmp_path / "policy.json"
+    paper_root = tmp_path / "papers"
+    paper_root.mkdir()
+    paper_payload = b"registered paper bytes"
+    (paper_root / "toy-paper.pdf").write_bytes(paper_payload)
+    paper_sha256 = sha256(paper_payload).hexdigest()
     schema_path.write_text(json.dumps(_schema()), encoding="utf-8")
     policy_path.write_text(
         json.dumps(
             {
-                "paper_artifacts": {"paper-toy-001": "a" * 64},
+                "paper_artifacts": {"paper-toy-001": paper_sha256},
+                "paper_artifact_paths": {"paper-toy-001": "toy-paper.pdf"},
                 "allowed_images": {"sha256:" + "b" * 64: "example.invalid/repro@sha256:" + "b" * 64},
             }
         ),
         encoding="utf-8",
     )
 
-    settings = ProductionVs001Settings.from_environment(
-        {
-            "RF_DATABASE_URL": "sqlite+pysqlite:///:memory:",
-            "RF_REDIS_URL": "redis://localhost:6379/0",
-            "RF_API_TOKEN": "test-token",
-            "RF_SCHEMA_PATH": str(schema_path),
-            "RF_POLICY_PATH": str(policy_path),
-            "RF_WORKSPACE_ROOT": str(tmp_path / "workspaces"),
-            "RF_ARTIFACT_ROOT": str(tmp_path / "cas"),
-            "RF_BROKER_SOCKET_PATH": str(tmp_path / "broker" / "sandbox.sock"),
-            "RF_CORS_ORIGINS": "https://forge.example.test, https://review.example.test",
-        }
-    )
+    environment = {
+        "RF_DATABASE_URL": "sqlite+pysqlite:///:memory:",
+        "RF_REDIS_URL": "redis://localhost:6379/0",
+        "RF_API_TOKEN": "test-token",
+        "RF_SCHEMA_PATH": str(schema_path),
+        "RF_POLICY_PATH": str(policy_path),
+        "RF_WORKSPACE_ROOT": str(tmp_path / "workspaces"),
+        "RF_ARTIFACT_ROOT": str(tmp_path / "cas"),
+        "RF_PAPER_ROOT": str(paper_root),
+        "RF_BROKER_SOCKET_PATH": str(tmp_path / "broker" / "sandbox.sock"),
+        "RF_CORS_ORIGINS": "https://forge.example.test, https://review.example.test",
+    }
+    settings = ProductionVs001Settings.from_environment(environment)
 
-    assert settings.paper_artifacts == {"paper-toy-001": "a" * 64}
+    assert settings.paper_artifacts == {"paper-toy-001": paper_sha256}
+    assert settings.paper_artifact_paths == {"paper-toy-001": paper_root / "toy-paper.pdf"}
     assert settings.broker_socket_path == (tmp_path / "broker" / "sandbox.sock").resolve()
     assert settings.cors_origins == ("https://forge.example.test", "https://review.example.test")
+
+    policy_path.write_text(
+        json.dumps(
+            {
+                "paper_artifacts": {"paper-toy-001": paper_sha256},
+                "paper_artifact_paths": {"paper-toy-001": "../escaped-paper.pdf"},
+                "allowed_images": {"sha256:" + "b" * 64: "example.invalid/repro@sha256:" + "b" * 64},
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ProductionConfigurationError, match="escapes RF_PAPER_ROOT"):
+        ProductionVs001Settings.from_environment(environment)

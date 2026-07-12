@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping, Set
 from pathlib import Path
 from subprocess import CalledProcessError, run
@@ -18,10 +19,16 @@ class PinnedLocalPrerequisiteVerifier:
         self,
         *,
         paper_artifacts: Mapping[str, str],
+        paper_artifact_paths: Mapping[str, Path] | None = None,
         allowed_image_digests: Set[str],
         git_binary: str = "git",
     ) -> None:
         self._paper_artifacts = {key: value.lower() for key, value in paper_artifacts.items()}
+        self._paper_artifact_paths = (
+            {key: Path(value).resolve() for key, value in paper_artifact_paths.items()}
+            if paper_artifact_paths is not None
+            else None
+        )
         self._allowed_image_digests = {value.lower() for value in allowed_image_digests}
         self._git_binary = git_binary
 
@@ -36,6 +43,7 @@ class PinnedLocalPrerequisiteVerifier:
     ) -> None:
         if self._paper_artifacts.get(paper_artifact_id) != paper_sha256.lower():
             raise ReproductionPrerequisiteFailure("Paper Artifact is not registered with the supplied SHA-256.")
+        self._verify_registered_paper_bytes(paper_artifact_id, paper_sha256)
         if image_digest.lower() not in self._allowed_image_digests:
             raise ReproductionPrerequisiteFailure("Execution image digest is not in the allowed image policy.")
         repository = Path(repository_url_or_path).resolve()
@@ -53,3 +61,16 @@ class PinnedLocalPrerequisiteVerifier:
             raise ReproductionPrerequisiteFailure("Pinned repository commit does not exist.") from exc
         if actual_commit.lower() != commit_sha.lower():
             raise ReproductionPrerequisiteFailure("Repository HEAD resolution differs from the frozen full SHA.")
+
+    def _verify_registered_paper_bytes(self, artifact_id: str, expected_sha256: str) -> None:
+        if self._paper_artifact_paths is None:
+            return
+        path = self._paper_artifact_paths.get(artifact_id)
+        if path is None or path.is_symlink() or not path.is_file():
+            raise ReproductionPrerequisiteFailure("Registered Paper Artifact bytes are missing or unsafe.")
+        digest = hashlib.sha256()
+        with path.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != expected_sha256.lower():
+            raise ReproductionPrerequisiteFailure("Registered Paper Artifact bytes do not match the frozen SHA-256.")

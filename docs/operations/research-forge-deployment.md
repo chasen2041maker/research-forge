@@ -22,12 +22,12 @@ sudo install -d -o research-forge -g research-forge -m 0750 /var/lib/research-fo
 sudo install -d -o root -g research-forge -m 0750 /etc/research-forge
 ```
 
-Place each permitted source repository under `/srv/research-forge/repositories` and each registered paper artifact under `/srv/research-forge/papers`. Repositories are read-only inputs for the service user; worktrees and CAS are the only writable execution roots.
+Place each permitted source repository under `/srv/research-forge/repositories` and each registered paper artifact under `/srv/research-forge/papers`. The policy records every paper path relative to `RF_PAPER_ROOT`; startup rejects missing, symlinked, or root-escaping entries, and Mission creation recomputes its SHA-256 before work is queued. Repositories are read-only inputs for the service user; worktrees and CAS are the only writable execution roots.
 
 ## Configure policy and state services
 
 1. Copy `deploy/research-forge/research-forge.env.example` to `/etc/research-forge/research-forge.env`, set a long random API token and the database password, then restrict it to `0640 root:research-forge`.
-2. Copy `deploy/research-forge/execution-policy.example.json` to `/etc/research-forge/execution-policy.json`. Register the exact paper SHA-256 and each approved immutable Docker image digest. Do not use image tags as policy keys.
+2. Copy `deploy/research-forge/execution-policy.example.json` to `/etc/research-forge/execution-policy.json`. Register the exact paper SHA-256 and a relative `paper_artifact_paths` entry for every paper, plus each approved immutable Docker image digest. Do not use image tags as policy keys.
 3. Put `RF_POSTGRES_PASSWORD` in a root-readable Compose environment file outside the repository. Start only the durable dependencies:
 
 ```bash
