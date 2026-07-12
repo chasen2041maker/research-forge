@@ -15,6 +15,7 @@ from research_forge.adapters.outbound.bundle import DeterministicZipBundleBuilde
 from research_forge.adapters.outbound.git import GitWorktreeManager
 from research_forge.adapters.outbound.persistence import InMemoryUnitOfWork
 from research_forge.adapters.outbound.sandbox import LocalDevelopmentSandbox
+from research_forge.adapters.inbound.worker import RepairWorker, RepairWorkerUseCases
 from research_forge.application.dto import ActionProposal, JsonSchemaReproductionSpecValidator
 from research_forge.application.use_cases import (
     BaselineValidationFailure,
@@ -25,17 +26,25 @@ from research_forge.application.use_cases import (
     FinalizeBaselineExecution,
     PersistArtifact,
     PrepareRepairCandidate,
+    ProposeRepairPatch,
     RequestRepairApproval,
     ResolveApproval,
     RunBaselineAttempt,
+    GetBaselineOutcome,
 )
 from research_forge.domain.errors import OperationConflict
 from research_forge.domain.mission import AttemptStatus, MissionStatus, TaskStatus, TaskType
 
 
 class _Clock:
+    def __init__(self) -> None:
+        self.current = datetime(2026, 7, 12, tzinfo=timezone.utc)
+
     def now(self) -> datetime:
-        return datetime(2026, 7, 12, tzinfo=timezone.utc)
+        return self.current
+
+    def advance(self, seconds: int) -> None:
+        self.current += timedelta(seconds=seconds)
 
 
 class _Ids:
@@ -176,9 +185,6 @@ def test_repair_runs_exactly_one_budgeted_candidate_after_a_failed_baseline(tmp_
     repair_attempt = uow.get_attempts_for_task(str(repair_task.task_id))[0]
     assert uow.get_attempt(mission.attempt_id).status is AttemptStatus.FAILED
     assert uow.get_task(mission.task_id).status is TaskStatus.FAILED
-    repair_lease = ClaimBaselineAttempt(
-        unit_of_work=uow, clock=clock, lease_duration=timedelta(seconds=30)
-    ).execute(attempt_id=str(repair_attempt.attempt_id), owner="worker-b")
     proposal = ActionProposal(
         action_type="APPLY_PATCH",
         unified_diff=(
@@ -195,18 +201,48 @@ def test_repair_runs_exactly_one_budgeted_candidate_after_a_failed_baseline(tmp_
         rationale_summary="Fix the frozen fixture's constant metric.",
         expected_artifacts=("metrics.json",),
     )
-    approval = RequestRepairApproval(
+    engine = FixedPatchDecisionEngine(proposal)
+    completion = CompleteReproductionMission(
         unit_of_work=uow,
+        artifact_store=cas,
+        artifact_persister=persister,
+        workspace_manager=workspace_manager,
+        bundle_builder=DeterministicZipBundleBuilder(),
         clock=clock,
         id_generator=ids,
-        approval_ttl=timedelta(minutes=5),
-    ).execute(
-        attempt_id=str(repair_attempt.attempt_id),
-        owner=repair_lease.owner,
-        epoch=repair_lease.epoch,
-        expected_version=repair_lease.version,
-        proposal=proposal,
     )
+    repair_worker = RepairWorker(
+        RepairWorkerUseCases(
+            get_outcome=GetBaselineOutcome(unit_of_work=uow),
+            claim=ClaimBaselineAttempt(unit_of_work=uow, clock=clock, lease_duration=timedelta(seconds=30)),
+            propose=ProposeRepairPatch(
+                unit_of_work=uow,
+                artifact_store=cas,
+                decision_engine=engine,
+                clock=clock,
+            ),
+            request_approval=RequestRepairApproval(
+                unit_of_work=uow,
+                clock=clock,
+                id_generator=ids,
+                approval_ttl=timedelta(minutes=5),
+            ),
+            prepare=PrepareRepairCandidate(
+                unit_of_work=uow,
+                artifact_store=cas,
+                workspace_manager=workspace_manager,
+                decision_engine=engine,
+                clock=clock,
+                id_generator=ids,
+            ),
+            run=RunBaselineAttempt(
+                unit_of_work=uow, sandbox_executor=sandbox, clock=clock, id_generator=ids
+            ),
+            finalize=finalizer,
+            complete=completion,
+        )
+    )
+    approval = repair_worker.process(attempt_id=str(repair_attempt.attempt_id), owner="worker-b")
     assert uow.get_mission(mission.mission_id).status is MissionStatus.WAITING_APPROVAL
     assert uow.get_attempt(str(repair_attempt.attempt_id)).status is AttemptStatus.RETRYABLE
     resolved = ResolveApproval(unit_of_work=uow, clock=clock, id_generator=ids).execute(
@@ -245,57 +281,14 @@ def test_repair_runs_exactly_one_budgeted_candidate_after_a_failed_baseline(tmp_
             idempotency_key=f"{resumed_attempt.attempt_id}:mismatched-candidate",
             approval_id=approval.approval_id,
         )
-    engine = FixedPatchDecisionEngine(proposal)
-    candidate = PrepareRepairCandidate(
-        unit_of_work=uow,
-        artifact_store=cas,
-        workspace_manager=workspace_manager,
-        decision_engine=engine,
-        clock=clock,
-        id_generator=ids,
-    ).execute(
+    clock.advance(31)
+    bundle = repair_worker.process(
         attempt_id=str(resumed_attempt.attempt_id),
-        owner=resumed_lease.owner,
-        epoch=resumed_lease.epoch,
-        expected_version=resumed_lease.version,
-        idempotency_key=f"{resumed_attempt.attempt_id}:candidate",
+        owner="worker-d",
         approval_id=approval.approval_id,
-    )
-    repair_execution = RunBaselineAttempt(
-        unit_of_work=uow, sandbox_executor=sandbox, clock=clock, id_generator=ids
-    ).execute(
-        attempt_id=str(resumed_attempt.attempt_id),
-        owner=resumed_lease.owner,
-        epoch=resumed_lease.epoch,
-        expected_version=resumed_lease.version,
-        idempotency_key=f"{resumed_attempt.attempt_id}:sandbox",
-        worktree_path=candidate.worktree_path,
-    )
-    finalizer.execute(
-        attempt_id=str(resumed_attempt.attempt_id),
-        owner=resumed_lease.owner,
-        epoch=resumed_lease.epoch,
-        expected_version=resumed_lease.version,
-        sandbox_result=repair_execution.sandbox_result,
-        commit_sha=candidate.commit_sha,
-    )
-    bundle = CompleteReproductionMission(
-        unit_of_work=uow,
-        artifact_store=cas,
-        artifact_persister=persister,
-        workspace_manager=workspace_manager,
-        bundle_builder=DeterministicZipBundleBuilder(),
-        clock=clock,
-        id_generator=ids,
-    ).execute(
-        attempt_id=str(resumed_attempt.attempt_id),
-        owner=resumed_lease.owner,
-        epoch=resumed_lease.epoch,
-        expected_version=resumed_lease.version,
-        worktree_path=candidate.worktree_path,
     )
 
     assert bundle.sha256
     assert uow.get_mission(mission.mission_id).status is MissionStatus.COMPLETED
     assert uow.get_attempt(str(resumed_attempt.attempt_id)).status is AttemptStatus.SUCCEEDED
-    assert len(engine.requests) == 1
+    assert len(engine.requests) == 2

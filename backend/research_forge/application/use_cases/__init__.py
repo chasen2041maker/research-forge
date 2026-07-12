@@ -37,6 +37,10 @@ from research_forge.application.use_cases.prepare_repair_candidate import (
     PrepareRepairCandidate,
     RepairCandidateView,
 )
+from research_forge.application.use_cases.propose_repair_patch import (
+    ProposeRepairPatch,
+    RepairProposalView,
+)
 from research_forge.application.use_cases.request_repair_approval import (
     ApprovalRequestView,
     RequestRepairApproval,
@@ -85,8 +89,10 @@ __all__ = [
     "MissionStatusView",
     "PersistArtifact",
     "PrepareRepairCandidate",
+    "ProposeRepairPatch",
     "RequestRepairApproval",
     "RepairCandidateView",
+    "RepairProposalView",
     "RenewAttemptLease",
     "RunBaselineAttempt",
     "ResolveApproval",
