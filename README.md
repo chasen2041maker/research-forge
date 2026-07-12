@@ -1,6 +1,6 @@
 # Research Forge
 
-> **Project status: architecture frozen, v0.1 implementation not started.**
+> **Project status: VS-001 baseline-reproduction vertical slice implemented and locally verified.**
 
 Research Forge is being redesigned as an evidence-gated research reproduction agent:
 
@@ -14,15 +14,9 @@ Research Forge is being redesigned as an evidence-gated research reproduction ag
 
 The current executable code under [`backend/co_scientist`](./backend/co_scientist) is the legacy AI Co-Scientist demo. It contains a fixed LangGraph research pipeline, literature retrieval, critique, experiment/code generation, paper drafting and SQLite-based branch metadata.
 
-It does **not** yet implement the new v0.1 architecture described below:
+The new [`backend/research_forge`](./backend/research_forge) package now implements the no-LLM VS-001 baseline path with a typed `ReproductionSpec` validator, durable Mission/Task/Attempt state model, lease/epoch protection, Operation Ledger, isolated Git baseline worktree, local CAS, deterministic metric/evidence gate, deterministic bundle and Worker retry handling. The legacy package remains isolated.
 
-- no PostgreSQL Mission/Task/Attempt state machine yet;
-- no durable Worker Lease/Heartbeat/Crash Resume yet;
-- no real baseline/candidate Git worktree workflow yet;
-- no content-addressed Artifact Store yet;
-- no Operation Ledger/Reconciler yet;
-- no code-enforced VerifiedClaim writer boundary yet;
-- no hardened standalone Sandbox Broker yet.
+The production PostgreSQL/Celery deployment adapters, repair slice, API/UI and formal Linux/WSL2 Docker security gate remain separate follow-on work; they are not represented as completed by the local development runtime.
 
 The old README and its historical feature descriptions are preserved at:
 
@@ -71,7 +65,7 @@ v0.1 deliberately excludes Browser automation, MCP, first-class Skills, Reviewer
 
 ## First implementation milestone
 
-The first vertical slice contains no LLM, LangGraph, Skill, MCP, Reviewer, Writer or UI. It must prove:
+The first vertical slice contains no LLM, LangGraph, Skill, MCP, Reviewer, Writer or UI. It now proves in the local deterministic test runtime:
 
 1. a validated `ReproductionSpec` creates a Mission;
 2. a durable Worker claims an Attempt using Lease/Epoch;
@@ -81,7 +75,16 @@ The first vertical slice contains no LLM, LangGraph, Skill, MCP, Reviewer, Write
 6. a forced Worker crash resumes without duplicate side effects;
 7. a deterministic metric produces a replayable bundle.
 
-Only after this slice passes Kill/Resume, Git/CAS recovery and security tests will the project add the LLM repair decision adapter.
+Only after this slice passes its formal Linux/WSL2 Docker security gate will the project add the LLM repair decision adapter.
+
+### VS-001 local verification
+
+```powershell
+python -m pytest backend/tests/research_forge -q
+python -m ruff check backend/research_forge backend/tests/research_forge
+```
+
+The end-to-end test creates a pinned Git fixture, executes the fixed command through the development-only argv runner, verifies `/accuracy`, writes log/metric/bundle artifacts to CAS, extracts the bundled source archive and replays the command. The Docker Broker implementation is intentionally restricted to Linux/WSL2; Windows native development does not constitute the formal container-security acceptance gate.
 
 ## Architecture rules
 
@@ -121,15 +124,15 @@ The reviewed estimate is 10 weeks of core development plus a 2-week release buff
 11. evaluation and hardening;
 12. documentation, demo and release.
 
-## Legacy verification
+## Verification
 
-The legacy suite was last run locally on 2026-07-12:
+The combined suite was last run locally on 2026-07-12:
 
 ```text
-150 passed, 9 skipped, 1 pytest cache warning
+176 passed, 9 skipped
 ```
 
-This is an engineering-regression result for the legacy code, not evidence that the new v0.1 architecture is implemented or validated.
+This includes the new VS-001 domain, recovery, architecture and local end-to-end tests. Formal Docker/WSL2 security validation remains an environment-specific release gate.
 
 ## Development policy
 
