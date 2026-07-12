@@ -8,6 +8,8 @@ from research_forge.domain.artifact import ArtifactRegistration
 from research_forge.domain.approval import Approval
 from research_forge.domain.execution import Operation
 from research_forge.domain.evidence import Claim, EvidenceLink, MetricRecord
+from datetime import datetime
+
 from research_forge.domain.mission import Attempt, AuditEvent, Mission, OutboxEvent, Task
 
 
@@ -74,6 +76,10 @@ class UnitOfWork(Protocol):
     def get_approval(self, approval_id: str) -> Approval | None: ...
 
     def get_approvals_for_mission(self, mission_id: str) -> tuple[Approval, ...]: ...
+
+    def get_unpublished_outbox_events(self, limit: int) -> tuple[OutboxEvent, ...]: ...
+
+    def mark_outbox_event_published(self, event_id: str, published_at: datetime) -> None: ...
 
     def commit(self) -> None: ...
 

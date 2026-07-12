@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
 from typing import Self
 
 from sqlalchemy import select, update
@@ -334,6 +335,33 @@ class SqlAlchemyUnitOfWork:
             if (approval := self.get_approval(approval_id)) is not None
         )
 
+    def get_unpublished_outbox_events(self, limit: int) -> tuple[OutboxEvent, ...]:
+        if limit <= 0:
+            raise ValueError("Outbox fetch limit must be positive.")
+        rows = self._require_session().scalars(
+            select(OutboxEventRow)
+            .where(OutboxEventRow.published_at.is_(None))
+            .order_by(OutboxEventRow.occurred_at)
+            .limit(limit)
+        )
+        events = tuple(
+            OutboxEvent(
+                event_id=row.event_id,
+                topic=row.topic,
+                aggregate_id=row.aggregate_id,
+                occurred_at=row.occurred_at,
+                payload=dict(row.payload),
+            )
+            for row in rows
+        )
+        self._outbox.update({event.event_id: event for event in events})
+        return events
+
+    def mark_outbox_event_published(self, event_id: str, published_at: datetime) -> None:
+        if self._require_session().get(OutboxEventRow, event_id) is None:
+            raise ValueError(f"Outbox event not found: {event_id}")
+        self._published_outbox_at.setdefault(event_id, published_at)
+
     def commit(self) -> None:
         session = self._require_session()
         self._flush_missions(session)
@@ -353,6 +381,12 @@ class SqlAlchemyUnitOfWork:
             session.merge(self._audit_row(audit))
         for outbox in self._outbox.values():
             session.merge(self._outbox_row(outbox))
+        for event_id, published_at in self._published_outbox_at.items():
+            session.execute(
+                update(OutboxEventRow)
+                .where(OutboxEventRow.event_id == event_id, OutboxEventRow.published_at.is_(None))
+                .values(published_at=published_at)
+            )
         for mission_id, bundle in self._bundles.items():
             session.merge(self._bundle_row(mission_id, bundle))
         for approval in self._approvals.values():
@@ -565,6 +599,7 @@ class SqlAlchemyUnitOfWork:
             aggregate_id=event.aggregate_id,
             occurred_at=event.occurred_at,
             payload=dict(event.payload),
+            published_at=None,
         )
 
     @staticmethod
@@ -615,5 +650,6 @@ class SqlAlchemyUnitOfWork:
         self._evidence = {}
         self._audits = {}
         self._outbox = {}
+        self._published_outbox_at = {}
         self._bundles = {}
         self._approvals = {}

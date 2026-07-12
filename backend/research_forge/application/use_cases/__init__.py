@@ -41,6 +41,11 @@ from research_forge.application.use_cases.propose_repair_patch import (
     ProposeRepairPatch,
     RepairProposalView,
 )
+from research_forge.application.use_cases.publish_pending_outbox import (
+    OutboxPublicationError,
+    OutboxPublicationView,
+    PublishPendingOutbox,
+)
 from research_forge.application.use_cases.request_repair_approval import (
     ApprovalRequestView,
     RequestRepairApproval,
@@ -89,7 +94,10 @@ __all__ = [
     "MissionStatusView",
     "PersistArtifact",
     "PrepareRepairCandidate",
+    "PublishPendingOutbox",
     "ProposeRepairPatch",
+    "OutboxPublicationError",
+    "OutboxPublicationView",
     "RequestRepairApproval",
     "RepairCandidateView",
     "RepairProposalView",

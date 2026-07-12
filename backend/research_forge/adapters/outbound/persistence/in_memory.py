@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Self
 
 from research_forge.domain.artifact import ArtifactRegistration
@@ -28,6 +29,7 @@ class _State:
     approvals: dict[str, Approval] = field(default_factory=dict)
     audits: list[AuditEvent] = field(default_factory=list)
     outbox: list[OutboxEvent] = field(default_factory=list)
+    published_outbox_at: dict[str, datetime] = field(default_factory=dict)
 
 
 class InMemoryUnitOfWork:
@@ -180,6 +182,18 @@ class InMemoryUnitOfWork:
 
     def get_approval(self, approval_id: str) -> Approval | None:
         return self._read().approvals.get(approval_id)
+
+    def get_unpublished_outbox_events(self, limit: int) -> tuple[OutboxEvent, ...]:
+        if limit <= 0:
+            raise ValueError("Outbox fetch limit must be positive.")
+        state = self._read()
+        return tuple(event for event in state.outbox if event.event_id not in state.published_outbox_at)[:limit]
+
+    def mark_outbox_event_published(self, event_id: str, published_at: datetime) -> None:
+        state = self._write()
+        if not any(event.event_id == event_id for event in state.outbox):
+            raise ValueError(f"Outbox event not found: {event_id}")
+        state.published_outbox_at.setdefault(event_id, published_at)
 
     def get_approvals_for_mission(self, mission_id: str) -> tuple[Approval, ...]:
         return tuple(
