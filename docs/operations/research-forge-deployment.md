@@ -74,7 +74,7 @@ docker compose -f /opt/research-forge/deploy/research-forge/compose.dependencies
 journalctl -u research-forge-worker -u research-forge-publisher -u research-forge-sandbox-broker --since "15 minutes ago"
 ```
 
-The runtime healthcheck verifies PostgreSQL, Redis, and the broker Unix socket. Queue messages are only Attempt IDs. PostgreSQL remains the source of truth; the worker acknowledges a Redis message only after the complete Mission path has durably finished. A repeated delivery after a crash is expected and is protected by broker-side completed-result recovery, operation idempotency, and CAS hashes.
+The runtime healthcheck verifies PostgreSQL, Redis, and the broker Unix socket. Queue messages are only Attempt IDs. PostgreSQL remains the source of truth; the worker acknowledges a Redis message only after the complete Mission path has durably finished. During a sandbox run the worker renews its owned Attempt lease every 10 seconds and stops that monitor before finalization, so the persisted optimistic version cannot race the evidence write. A repeated delivery after a crash is expected and is protected by broker-side completed-result recovery, operation idempotency, and CAS hashes.
 
 ## Recovery, backup, and rollout
 

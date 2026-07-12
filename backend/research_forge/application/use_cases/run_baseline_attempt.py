@@ -49,6 +49,7 @@ class RunBaselineAttempt:
         worktree_path: str,
         after_execution: Callable[[], None] | None = None,
         on_execution_started: Callable[[SandboxRunRequest], None] | None = None,
+        on_execution_finished: Callable[[], int] | None = None,
     ) -> BaselineExecutionView:
         request, already_succeeded = self._prepare(
             attempt_id=attempt_id,
@@ -68,11 +69,14 @@ class RunBaselineAttempt:
         result = self._sandbox_executor.execute(request)
         if after_execution is not None:
             after_execution()
+        finalization_version = expected_version
+        if on_execution_finished is not None:
+            finalization_version = on_execution_finished()
         self._finalize(
             attempt_id=attempt_id,
             owner=owner,
             epoch=epoch,
-            expected_version=expected_version,
+            expected_version=finalization_version,
             idempotency_key=idempotency_key,
             result=result,
         )

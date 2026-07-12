@@ -14,18 +14,23 @@ import pytest
 
 from research_forge.adapters.outbound.artifacts import LocalContentAddressedStore
 from research_forge.adapters.outbound.git import GitWorktreeManager
+from research_forge.adapters.inbound.worker import BaselineWorker, BaselineWorkerUseCases
 from research_forge.adapters.outbound.persistence import InMemoryUnitOfWork
 from research_forge.adapters.outbound.sandbox import LocalDevelopmentSandbox
 from research_forge.adapters.outbound.bundle import DeterministicZipBundleBuilder
 from research_forge.application.dto import JsonSchemaReproductionSpecValidator
 from research_forge.application.dto.sandbox import SandboxResult, SandboxRunRequest
 from research_forge.application.use_cases import (
+    CancelBaselineAttempt,
     ClaimBaselineAttempt,
     CompleteReproductionMission,
     CreateReproductionMission,
     EnsureBaselineWorkspace,
     FinalizeBaselineExecution,
+    GetBaselineOutcome,
+    HeartbeatView,
     PersistArtifact,
+    RenewAttemptLease,
     RunBaselineAttempt,
 )
 from research_forge.domain.evidence import MetricComparator, MetricExpectation, extract_and_validate_metric
@@ -90,6 +95,64 @@ class _BlockingSandbox:
     def cancel(self, operation_id: str) -> None:
         assert operation_id
         self.cancelled.set()
+
+
+class _AdvancingClock:
+    def __init__(self) -> None:
+        self.current = datetime(2026, 7, 12, tzinfo=timezone.utc)
+
+    def now(self) -> datetime:
+        return self.current
+
+    def advance(self, seconds: int) -> None:
+        self.current += timedelta(seconds=seconds)
+
+
+class _HeartbeatProbe(RenewAttemptLease):
+    def __init__(self, renewal: RenewAttemptLease) -> None:
+        self._renewal = renewal
+        self.renewed = Event()
+
+    def execute(self, *, attempt_id: str, owner: str, epoch: int, expected_version: int) -> HeartbeatView:
+        result = self._renewal.execute(
+            attempt_id=attempt_id,
+            owner=owner,
+            epoch=epoch,
+            expected_version=expected_version,
+        )
+        self.renewed.set()
+        return result
+
+
+class _LeaseRenewingSandbox:
+    def __init__(self, clock: _AdvancingClock, heartbeat: _HeartbeatProbe) -> None:
+        self._clock = clock
+        self._heartbeat = heartbeat
+
+    def execute(self, request: SandboxRunRequest) -> SandboxResult:
+        self._clock.advance(20)
+        if not self._heartbeat.renewed.wait(timeout=5):
+            raise RuntimeError("Worker did not renew the active lease.")
+        self._clock.advance(15)
+        return SandboxResult(
+            operation_id=request.operation_id,
+            execution_id=request.operation_id,
+            exit_code=0,
+            stdout=b"",
+            stderr=b"",
+            output_files={"metrics.json": b'{"accuracy": 0.8}'},
+            environment_digest=request.image_digest,
+            dataset_sha256="0" * 64,
+        )
+
+    @staticmethod
+    def get_completed(operation_id: str) -> SandboxResult | None:
+        del operation_id
+        return None
+
+    @staticmethod
+    def cancel(operation_id: str) -> None:
+        raise AssertionError(f"Unexpected cancellation of {operation_id}.")
 
 
 def _git(*arguments: str, cwd: Path) -> str:
@@ -310,6 +373,81 @@ def test_queue_redelivery_after_db_completion_reuses_the_existing_bundle(tmp_pat
     assert first == second
     assert runtime.queue.acknowledged == [mission.attempt_id]
     assert len(runtime.unit_of_work.bundles) == 1
+
+
+def test_worker_renews_lease_during_sandbox_execution_before_finalizing(tmp_path: Path) -> None:
+    clock = _AdvancingClock()
+    ids = _Ids()
+    repository, commit_sha = _fixture_repository(tmp_path)
+    uow = InMemoryUnitOfWork()
+    mission = CreateReproductionMission(
+        spec_validator=_validator(),
+        unit_of_work=uow,
+        clock=clock,
+        id_generator=ids,
+        prerequisite_verifier=_AcceptingPrerequisites(),
+    ).execute(_spec(repository, commit_sha))
+    workspace_manager = GitWorktreeManager(tmp_path / "workspaces")
+    artifact_store = LocalContentAddressedStore(tmp_path / "cas")
+    artifact_persister = PersistArtifact(
+        unit_of_work=uow,
+        artifact_store=artifact_store,
+        clock=clock,
+        id_generator=ids,
+    )
+    renewal = _HeartbeatProbe(
+        RenewAttemptLease(unit_of_work=uow, clock=clock, lease_duration=timedelta(seconds=30))
+    )
+    sandbox = _LeaseRenewingSandbox(clock, renewal)
+    worker = BaselineWorker(
+        BaselineWorkerUseCases(
+            get_outcome=GetBaselineOutcome(unit_of_work=uow),
+            claim=ClaimBaselineAttempt(unit_of_work=uow, clock=clock, lease_duration=timedelta(seconds=30)),
+            heartbeat=renewal,
+            ensure_workspace=EnsureBaselineWorkspace(
+                unit_of_work=uow,
+                workspace_manager=workspace_manager,
+                clock=clock,
+                id_generator=ids,
+            ),
+            run=RunBaselineAttempt(
+                unit_of_work=uow,
+                sandbox_executor=sandbox,
+                clock=clock,
+                id_generator=ids,
+            ),
+            cancel=CancelBaselineAttempt(
+                unit_of_work=uow,
+                sandbox_executor=sandbox,
+                clock=clock,
+                id_generator=ids,
+            ),
+            finalize=FinalizeBaselineExecution(
+                unit_of_work=uow,
+                artifact_persister=artifact_persister,
+                clock=clock,
+                id_generator=ids,
+            ),
+            complete=CompleteReproductionMission(
+                unit_of_work=uow,
+                artifact_store=artifact_store,
+                artifact_persister=artifact_persister,
+                workspace_manager=workspace_manager,
+                bundle_builder=DeterministicZipBundleBuilder(),
+                clock=clock,
+                id_generator=ids,
+            ),
+        ),
+        heartbeat_interval_seconds=0.001,
+    )
+
+    bundle = worker.process(attempt_id=mission.attempt_id, owner="worker-heartbeat")
+
+    attempt = uow.get_attempt(mission.attempt_id)
+    assert renewal.renewed.is_set()
+    assert bundle.sha256
+    assert attempt is not None and attempt.status is AttemptStatus.SUCCEEDED
+    assert clock.now() == datetime(2026, 7, 12, 0, 0, 35, tzinfo=timezone.utc)
 
 
 def test_worker_cancellation_stops_the_sandbox_and_registers_no_artifact(tmp_path: Path) -> None:

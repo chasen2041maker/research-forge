@@ -31,6 +31,7 @@ from research_forge.application.use_cases import (
     GetMissionStatus,
     PersistArtifact,
     RequestMissionCancellation,
+    RenewAttemptLease,
     ResolveApproval,
     RunBaselineAttempt,
     PublishPendingOutbox,
@@ -101,6 +102,11 @@ def build_local_vs001_runtime(
         BaselineWorkerUseCases(
             get_outcome=GetBaselineOutcome(unit_of_work=unit_of_work),
             claim=ClaimBaselineAttempt(
+                unit_of_work=unit_of_work,
+                clock=clock,
+                lease_duration=timedelta(seconds=30),
+            ),
+            heartbeat=RenewAttemptLease(
                 unit_of_work=unit_of_work,
                 clock=clock,
                 lease_duration=timedelta(seconds=30),
