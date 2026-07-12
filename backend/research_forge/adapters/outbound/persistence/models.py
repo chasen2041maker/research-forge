@@ -19,6 +19,7 @@ class MissionRow(Base):
     spec_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     normalized_spec_json: Mapped[str] = mapped_column(Text, nullable=False)
     original_spec_json: Mapped[str] = mapped_column(Text, nullable=False)
+    proposal_id: Mapped[str | None] = mapped_column(String(128), index=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

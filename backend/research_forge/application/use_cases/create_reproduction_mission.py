@@ -52,7 +52,9 @@ class CreateReproductionMission:
         self._id_generator = id_generator
         self._prerequisite_verifier = prerequisite_verifier
 
-    def execute(self, raw_spec: Mapping[str, Any]) -> MissionView:
+    def execute(self, raw_spec: Mapping[str, Any], *, proposal_id: str | None = None) -> MissionView:
+        if proposal_id is not None and not proposal_id.strip():
+            raise ValueError("proposal_id must not be blank when supplied")
         spec = self._spec_validator.validate(raw_spec)
         self._verify_prerequisites(spec.payload)
         now = self._clock.now()
@@ -63,6 +65,7 @@ class CreateReproductionMission:
             normalized_spec_json=spec.normalized_json,
             created_at=now,
             original_spec_json=spec.original_json,
+            proposal_id=proposal_id,
         )
         mission.mark_ready()
         task = Task(
@@ -84,6 +87,8 @@ class CreateReproductionMission:
             "attempt_id": str(attempt.attempt_id),
             "spec_sha256": spec.sha256,
         }
+        if proposal_id is not None:
+            event_payload["proposal_id"] = proposal_id
         audit_event = AuditEvent(
             event_id=self._id_generator.new("audit"),
             aggregate_type="mission",

@@ -35,6 +35,23 @@ class VerifiedResultV1:
         }
 
     @classmethod
+    def from_mapping(cls, raw: Mapping[str, object]) -> VerifiedResultV1:
+        """Validate a transport payload before a read-only Studio consumer renders it."""
+        if raw.get("schema_version") != 1 or raw.get("status") != "VERIFIED":
+            raise VerifiedResultValidationError("VerifiedResult v1 requires schema_version=1 and status=VERIFIED")
+        metric = raw.get("metric")
+        if not isinstance(metric, Mapping):
+            raise VerifiedResultValidationError("metric evidence must be an object")
+        fields = ("proposal_id", "mission_id", "spec_sha256", "bundle_sha256", "completed_at")
+        values: dict[str, str] = {}
+        for field in fields:
+            value = raw.get(field)
+            if not isinstance(value, str):
+                raise VerifiedResultValidationError(f"{field} must be a string")
+            values[field] = value
+        return cls.create(metric=metric, **values)
+
+    @classmethod
     def create(
         cls,
         *,

@@ -33,6 +33,7 @@ from research_forge.application.use_cases.complete_reproduction_mission import (
     CompleteReproductionMission,
 )
 from research_forge.application.use_cases.get_baseline_outcome import ExistingBundleView, GetBaselineOutcome
+from research_forge.application.use_cases.get_verified_result import GetVerifiedResult, VerifiedResultUnavailable
 from research_forge.application.use_cases.prepare_repair_candidate import (
     PrepareRepairCandidate,
     RepairCandidateView,
@@ -88,6 +89,7 @@ __all__ = [
     "FinalizedBaselineView",
     "HeartbeatView",
     "GetBaselineOutcome",
+    "GetVerifiedResult",
     "GetMissionStatus",
     "LeaseView",
     "MissionView",
@@ -109,6 +111,7 @@ __all__ = [
     "TaskStatusView",
     "AttemptStatusView",
     "WorkspaceView",
+    "VerifiedResultUnavailable",
     "ReconcileStaleOperations",
     "ReconciliationView",
 ]

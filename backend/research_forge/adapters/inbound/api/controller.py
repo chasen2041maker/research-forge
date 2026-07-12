@@ -11,6 +11,7 @@ from research_forge.application.use_cases import (
     CreateReproductionMission,
     DownloadBundle,
     GetMissionStatus,
+    GetVerifiedResult,
     MissionStatusView,
     MissionView,
     ResolveApproval,
@@ -26,21 +27,26 @@ class MissionController:
         *,
         create_mission: CreateReproductionMission,
         get_status: GetMissionStatus,
+        get_verified_result: GetVerifiedResult,
         request_cancellation: RequestMissionCancellation,
         download_bundle: DownloadBundle,
         resolve_approval: ResolveApproval,
     ) -> None:
         self._create_mission = create_mission
         self._get_status = get_status
+        self._get_verified_result = get_verified_result
         self._request_cancellation = request_cancellation
         self._download_bundle = download_bundle
         self._resolve_approval = resolve_approval
 
-    def create(self, raw_spec: Mapping[str, Any]) -> MissionView:
-        return self._create_mission.execute(raw_spec)
+    def create(self, raw_spec: Mapping[str, Any], *, proposal_id: str | None = None) -> MissionView:
+        return self._create_mission.execute(raw_spec, proposal_id=proposal_id)
 
     def status(self, mission_id: str) -> MissionStatusView:
         return self._get_status.execute(mission_id)
+
+    def verified_result(self, mission_id: str) -> object:
+        return self._get_verified_result.execute(mission_id).to_mapping()
 
     def request_cancel(self, mission_id: str) -> None:
         self._request_cancellation.execute(mission_id=mission_id)

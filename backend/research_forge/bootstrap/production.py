@@ -40,6 +40,7 @@ from research_forge.application.use_cases import (
     EnsureBaselineWorkspace,
     FinalizeBaselineExecution,
     GetBaselineOutcome,
+    GetVerifiedResult,
     GetMissionStatus,
     PersistArtifact,
     PublishPendingOutbox,
@@ -249,6 +250,7 @@ def build_production_vs001_runtime(
     controller = MissionController(
         create_mission=create_mission,
         get_status=GetMissionStatus(unit_of_work=unit_of_work),
+        get_verified_result=GetVerifiedResult(unit_of_work=unit_of_work),
         request_cancellation=RequestMissionCancellation(
             unit_of_work=unit_of_work,
             clock=clock,

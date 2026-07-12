@@ -14,5 +14,5 @@ the gateway can compile a normal Forge `ReproductionSpec v1`.
 ## Consequences
 
 The gateway never chooses a commit, hash, image, command, metric, or budget on a user's behalf.
-Forge retains all existing schema and prerequisite validation. Future report-back to Studio consumes
-the verified-result contract rather than Forge's internal read models.
+Forge retains all existing schema and prerequisite validation. Report-back to Studio consumes the
+verified-result contract rather than Forge's internal read models.

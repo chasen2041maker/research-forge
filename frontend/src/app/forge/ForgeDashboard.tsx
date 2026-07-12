@@ -46,9 +46,20 @@ type Mission = {
   mission_id: string;
   status: string;
   spec_sha256: string;
+  proposal_id: string | null;
   tasks: Task[];
   approvals: Approval[];
   bundle_sha256: string | null;
+};
+
+type VerifiedResult = {
+  status: "VERIFIED";
+  proposal_id: string;
+  mission_id: string;
+  spec_sha256: string;
+  metric: Record<string, unknown>;
+  bundle_sha256: string;
+  completed_at: string;
 };
 
 const initialSpec = `{
@@ -86,8 +97,9 @@ export default function ForgeDashboard() {
   const [completionText, setCompletionText] = useState(initialSpec);
   const [missionId, setMissionId] = useState("");
   const [mission, setMission] = useState<Mission | null>(null);
+  const [verifiedResult, setVerifiedResult] = useState<VerifiedResult | null>(null);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState<"create" | "handoff" | "refresh" | "cancel" | "bundle" | "approval" | "">("");
+  const [busy, setBusy] = useState<"create" | "handoff" | "refresh" | "cancel" | "bundle" | "approval" | "verified" | "">("");
   const authenticated = token.trim().length > 0;
   const attemptCount = useMemo(
     () => mission?.tasks.reduce((sum, task) => sum + task.attempts.length, 0) ?? 0,
@@ -115,6 +127,7 @@ export default function ForgeDashboard() {
       const next = (await response.json()) as Mission;
       setMission(next);
       setMissionId(next.mission_id);
+      setVerifiedResult(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to load Mission.");
     } finally {
@@ -191,6 +204,20 @@ export default function ForgeDashboard() {
       URL.revokeObjectURL(url);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Bundle download failed.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function loadVerifiedResult() {
+    if (!mission || !authenticated) return;
+    setBusy("verified");
+    setError("");
+    try {
+      const response = await request(`/v1/missions/${encodeURIComponent(mission.mission_id)}/verified-result`);
+      setVerifiedResult((await response.json()) as VerifiedResult);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "VerifiedResult is not available for this Mission.");
     } finally {
       setBusy("");
     }
@@ -351,6 +378,15 @@ export default function ForgeDashboard() {
                   >
                     {busy === "bundle" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Download verified Bundle
                   </button>
+                  {mission.proposal_id && (
+                    <button
+                      onClick={loadVerifiedResult}
+                      disabled={busy !== ""}
+                      className="inline-flex items-center gap-2 rounded-md border border-emerald-500/60 px-3 py-2 text-sm text-emerald-200 hover:bg-emerald-500/10 disabled:opacity-40"
+                    >
+                      {busy === "verified" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} Read VerifiedResult
+                    </button>
+                  )}
                 </div>
               ) : (
                 <p className="text-sm text-slate-400">A Bundle becomes available only after deterministic metric and evidence closure.</p>
@@ -384,6 +420,20 @@ export default function ForgeDashboard() {
             <p className="text-sm text-slate-400">No durable approval is waiting. Candidate work cannot be committed until its matching patch hash is approved.</p>
           )}
         </Panel>
+
+        {verifiedResult && (
+          <Panel icon={<ShieldCheck className="h-5 w-5" />} title="VerifiedResult v1 · read-only Forge evidence">
+            <div className="space-y-3 text-sm">
+              <div className="flex flex-wrap gap-x-6 gap-y-2 text-slate-300">
+                <span>Proposal <code className="text-emerald-200">{verifiedResult.proposal_id}</code></span>
+                <span>Completed {new Date(verifiedResult.completed_at).toLocaleString()}</span>
+              </div>
+              <code className="block break-all text-xs text-cyan-200">Bundle sha256:{verifiedResult.bundle_sha256}</code>
+              <pre className="overflow-x-auto rounded-lg border border-slate-800 bg-slate-950/70 p-3 text-xs leading-5 text-slate-300">{JSON.stringify(verifiedResult.metric, null, 2)}</pre>
+              <p className="text-xs leading-5 text-slate-500">This panel displays Forge-issued evidence facts only; it does not turn the result into new Studio analysis.</p>
+            </div>
+          </Panel>
+        )}
 
         <Panel icon={<ClipboardList className="h-5 w-5" />} title="Timeline">
           {mission ? (

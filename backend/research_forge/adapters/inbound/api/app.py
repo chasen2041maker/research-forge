@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, StrictBool
 
 from research_forge.adapters.inbound.api.controller import MissionController
-from research_forge.application.use_cases import ApprovalNotFound, MissionNotFound
+from research_forge.application.use_cases import ApprovalNotFound, MissionNotFound, VerifiedResultUnavailable
 from research_contracts import ResearchProposalV1
 from research_gateway import ProposalCompletionV1, compile_proposal
 
@@ -72,7 +72,7 @@ def create_app(
             built = compile_proposal(proposal=proposal, completion=completion)
             return {
                 "proposal_id": built.proposal_id,
-                "mission": controller.create(built.spec),
+                "mission": controller.create(built.spec, proposal_id=built.proposal_id),
             }
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -83,6 +83,15 @@ def create_app(
             return controller.status(mission_id)
         except MissionNotFound as exc:
             raise HTTPException(status_code=404, detail="Mission not found.") from exc
+
+    @app.get("/v1/missions/{mission_id}/verified-result", dependencies=[Depends(authenticate)])
+    def verified_result(mission_id: str) -> object:
+        try:
+            return controller.verified_result(mission_id)
+        except MissionNotFound as exc:
+            raise HTTPException(status_code=404, detail="Mission not found.") from exc
+        except VerifiedResultUnavailable as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/v1/missions/{mission_id}/cancel", dependencies=[Depends(authenticate)], status_code=202)
     def cancel_mission(mission_id: str) -> object:

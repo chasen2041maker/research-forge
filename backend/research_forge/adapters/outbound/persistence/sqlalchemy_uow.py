@@ -154,6 +154,7 @@ class SqlAlchemyUnitOfWork:
             original_spec_json=row.original_spec_json,
             status=MissionStatus(row.status),
             version=row.version,
+            proposal_id=row.proposal_id,
         )
         self._missions[mission_id] = mission
         self._mission_versions[mission_id] = row.version
@@ -442,6 +443,7 @@ class SqlAlchemyUnitOfWork:
                 "spec_sha256": mission.spec_sha256,
                 "normalized_spec_json": mission.normalized_spec_json,
                 "original_spec_json": mission.original_spec_json,
+                "proposal_id": mission.proposal_id,
                 "status": str(mission.status),
                 "version": mission.version,
                 "created_at": mission.created_at,

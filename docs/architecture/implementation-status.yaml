@@ -42,6 +42,10 @@ capabilities:
   studio_forge_contract_boundary:
     status: implemented
     evidence: backend/tests/research_integration/test_studio_forge_handoff.py
+  verified_result_return_loop:
+    status: implemented
+    evidence: backend/tests/research_integration/test_verified_result_loop.py
+    implemented: A completed handoff Mission persists its proposal identity and exposes a read-only VerifiedResult v1 only from registered Bundle, Metric, and VERIFIED claim evidence; Studio projects contract facts without Forge implementation imports.
   independent_external_fixture_evaluation:
     status: planned
     absent: No external-fixture statistical evaluation claim is made.

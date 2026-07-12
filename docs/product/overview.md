@@ -35,7 +35,7 @@ creative exploration to bounded verification.
   pin checks -> Mission -> Attempt -> sandbox -> metric -> evidence -> Bundle
                                          |
                                          v
-                         VerifiedResult v1 (future Studio-readable report)
+                         VerifiedResult v1 (read-only Studio report)
 ```
 
 ## Ownership and boundaries
@@ -105,8 +105,10 @@ force.
 - `VerifiedResult v1` must point to the Mission, frozen spec SHA-256, observed metric, Bundle SHA-256,
   and completion time. `research_gateway.verified_report` deliberately requires those values.
 
-Automated return of `VerifiedResult v1` to Studio is intentionally a later step. It must read
-Forge's completed source of truth rather than duplicate status in Studio memory.
+Forge now exposes `GET /v1/missions/{mission_id}/verified-result` only after it finds the completed
+Mission, registered Bundle, metric record, VERIFIED claims, and persisted Studio proposal link in
+its source of truth. Studio's public writer consumes only that contract and never duplicates Forge
+status in Studio memory.
 
 ## Current scope and non-goals
 

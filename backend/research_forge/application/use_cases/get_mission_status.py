@@ -50,6 +50,7 @@ class MissionStatusView:
     tasks: tuple[TaskStatusView, ...]
     approvals: tuple[ApprovalStatusView, ...]
     bundle_sha256: str | None
+    proposal_id: str | None = None
 
 
 class GetMissionStatus:
@@ -105,4 +106,5 @@ class GetMissionStatus:
             tasks=tasks,
             approvals=approvals,
             bundle_sha256=bundle.artifact.sha256 if bundle is not None else None,
+            proposal_id=mission.proposal_id,
         )

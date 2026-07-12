@@ -111,9 +111,9 @@ The GitHub Actions workflow runs mypy, secret scanning, the non-Docker suite, ar
 4. Forge calls the normal frozen-spec Mission creation path. It still rejects invalid JSON Schema,
    unavailable pins, disallowed images, and unsatisfied prerequisite checks.
 
-The handoff never copies a Studio suggestion into an execution field automatically. A future Studio
-report may read `VerifiedResult v1`, but it will not change the evidence gate or make unverified
-output look verified.
+The handoff never copies a Studio suggestion into an execution field automatically. After normal
+evidence closure, a handoff Mission exposes read-only `VerifiedResult v1` facts; this does not
+change the evidence gate or make unverified output look verified.
 
 ## Core concepts
 

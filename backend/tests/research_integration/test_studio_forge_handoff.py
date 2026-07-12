@@ -131,7 +131,8 @@ class _RecordingController:
     def __init__(self) -> None:
         self.spec: dict[str, object] | None = None
 
-    def create(self, spec: object) -> dict[str, str]:
+    def create(self, spec: object, *, proposal_id: str | None = None) -> dict[str, str]:
+        assert proposal_id == "proposal-studio-run-001"
         self.spec = dict(spec) if isinstance(spec, dict) else None
         return {"mission_id": "mission-001", "status": "READY"}
 
