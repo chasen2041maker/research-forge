@@ -71,6 +71,7 @@ class ProductionVs001Settings:
     workspace_root: Path
     artifact_root: Path
     broker_socket_path: Path
+    broker_state_root: Path
     paper_root: Path
     paper_artifacts: Mapping[str, str]
     paper_artifact_paths: Mapping[str, Path]
@@ -114,6 +115,9 @@ class ProductionVs001Settings:
             artifact_root=Path(_required(values, "RF_ARTIFACT_ROOT")).resolve(),
             broker_socket_path=Path(
                 values.get("RF_BROKER_SOCKET_PATH", "/var/lib/research-forge/broker/sandbox.sock")
+            ).resolve(),
+            broker_state_root=Path(
+                values.get("RF_BROKER_STATE_ROOT", "/var/lib/research-forge/broker/state")
             ).resolve(),
             paper_root=paper_root,
             paper_artifacts=paper_artifacts,

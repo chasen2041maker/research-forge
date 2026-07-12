@@ -102,7 +102,29 @@ def test_docker_command_applies_offline_hardened_policy_without_docker_socket(tm
     ]
     assert "docker.sock" not in " ".join(command)
     assert ",rw" not in command[command.index("--mount") + 1]
+    assert command[:5] == ["docker", "run", "-d", "--name", broker.container_name("operation-1")]
+    assert "--rm" not in command
+    assert "research-forge.operation=operation-1" in command
+    assert any(item.startswith("research-forge.input-hash=") for item in command)
     assert command[-4:] == ["python", "evaluate.py", "--output", "metrics.json"]
+
+
+def test_docker_cancel_uses_stable_name_stop_kill_and_remove(tmp_path: Path, monkeypatch) -> None:
+    workspace = tmp_path / "workspaces"
+    workspace.mkdir()
+    broker = DockerSandboxBroker(
+        workspace_root=workspace,
+        allowed_images={"sha256:" + "a" * 64: "python@sha256:" + "a" * 64},
+    )
+    existence = iter((True, True))
+    commands: list[tuple[str, ...]] = []
+    monkeypatch.setattr(broker, "_container_exists", lambda name: next(existence))
+    monkeypatch.setattr(broker, "_docker", lambda arguments, allow_failure=False: commands.append(arguments) or "")
+
+    broker.cancel("operation-1")
+
+    name = broker.container_name("operation-1")
+    assert commands == [("stop", "--time", "2", name), ("kill", name), ("rm", "-f", name)]
 
 
 def test_sandbox_completion_before_db_finalize_recovers_one_operation() -> None:

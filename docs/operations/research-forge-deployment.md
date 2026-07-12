@@ -19,7 +19,7 @@ The `research-forge` user must not be a general administrator. Only `research-fo
 ```bash
 sudo install -d -o research-forge -g research-forge -m 0750 \
   /srv/research-forge/{repositories,papers,workspaces,cas}
-sudo install -d -o research-forge -g research-forge -m 0750 /var/lib/research-forge/broker
+sudo install -d -o research-forge -g research-forge -m 0750 /var/lib/research-forge/broker/state
 sudo install -d -o root -g research-forge -m 0750 /etc/research-forge
 ```
 
@@ -75,12 +75,13 @@ docker compose -f /opt/research-forge/deploy/research-forge/compose.dependencies
 journalctl -u research-forge-worker -u research-forge-publisher -u research-forge-reconciler -u research-forge-sandbox-broker --since "15 minutes ago"
 ```
 
-The runtime healthcheck verifies PostgreSQL, Redis, and the broker Unix socket. Queue messages are only Attempt IDs. PostgreSQL remains the source of truth; the worker acknowledges a Redis message only after the complete Mission path has durably finished. The reconciler scans stale `PREPARED` and `EXECUTING` Operations every 30 seconds and atomically emits one Outbox redelivery for the original Attempt; recovery reuses its original idempotency key. During a sandbox run the worker renews its owned Attempt lease every 10 seconds and stops that monitor before finalization, so the persisted optimistic version cannot race the evidence write. A repeated delivery after a crash is expected and is protected by broker-side completed-result recovery, operation idempotency, and CAS hashes.
+The runtime healthcheck verifies PostgreSQL, Redis, and the broker Unix socket. Queue messages are only Attempt IDs. PostgreSQL remains the source of truth; the worker acknowledges a Redis message only after the complete Mission path has durably finished. The reconciler scans stale `PREPARED` and `EXECUTING` Operations every 30 seconds and atomically emits one Outbox redelivery for the original Attempt; recovery reuses its original idempotency key. Docker Operations also have a private Broker State directory (`RF_BROKER_STATE_ROOT`): the broker validates its request/result/payload hashes before returning a pre-Finalize result or discovering the same named container. It is not a substitute for PostgreSQL or CAS. During a sandbox run the worker renews its owned Attempt lease every 10 seconds and stops that monitor before finalization, so the persisted optimistic version cannot race the evidence write. A repeated delivery after a crash is expected and is protected by broker-side completed-result recovery, operation idempotency, and CAS hashes.
 
 ## Recovery, backup, and rollout
 
 - **Publisher, reconciler, or worker restart:** restart the unit. Unpublished Outbox events remain in PostgreSQL, stale ledger operations are requeued by the reconciler, and unacknowledged Redis deliveries remain available for retry.
 - **Cancellation or failed sandbox execution:** a cancellation request is durable first; the worker observes it, sends the bounded cancel operation to the broker, records `CANCELLED`, and then acknowledges the Attempt delivery without registering later artifacts. Inspect the Mission evidence and worker journal. Do not hand-edit worktrees, CAS bytes, operations, or approval records; cancel the Mission or create a new frozen Mission instead. Bundle replay rejects traversal, links, non-file members, excess member count, oversized members, excess extraction size, and compression-ratio bombs.
+- **Broker State cleanup:** do not delete `/var/lib/research-forge/broker/state/<operation-hash>` while its PostgreSQL Operation is non-terminal. After terminal reconciliation and verified CAS registration, remove it through an audited maintenance procedure; a corrupt entry fails closed and requires operator investigation rather than a blind re-run.
 - **Unexpected repair Attempt:** the shipped production worker fails closed and leaves it unacknowledged because no LLM DecisionEngine is configured. Stop the worker, investigate the durable approval and policy, and deploy a separately reviewed repair worker before retrying. Do not point the production service at the test-only fixed-patch adapter.
 - **Database backup:** use a consistent `pg_dump` from the Postgres container, then separately snapshot the CAS and workspace roots. A database-only restore cannot reproduce artifact bytes.
 
