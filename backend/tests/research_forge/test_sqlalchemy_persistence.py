@@ -13,6 +13,7 @@ from research_forge.adapters.outbound.persistence import SqlAlchemyUnitOfWork
 from research_forge.adapters.outbound.persistence.models import ApprovalRow, AuditEventRow, Base, OutboxEventRow
 from research_forge.domain.approval import Approval, ApprovalStatus
 from research_forge.domain.errors import OptimisticLockConflict
+from research_forge.domain.execution import Operation, OperationStatus, OperationType
 from research_forge.domain.mission import (
     Attempt,
     AttemptId,
@@ -107,6 +108,48 @@ def test_sqlalchemy_uow_rejects_a_stale_mission_version() -> None:
             second.commit()
         with pytest.raises(OptimisticLockConflict):
             first.commit()
+
+
+def test_sqlalchemy_uow_lists_only_stale_reconcilable_operations() -> None:
+    session_factory = _session_factory()
+    unit_of_work = SqlAlchemyUnitOfWork(session_factory)
+    now = datetime(2026, 7, 12, tzinfo=timezone.utc)
+    _seed(unit_of_work, now)
+    stale = Operation(
+        operation_id="operation-stale",
+        idempotency_key="attempt-1:sandbox",
+        attempt_id=AttemptId("attempt-1"),
+        operation_type=OperationType.SANDBOX_RUN,
+        input_hash="a" * 64,
+        lease_epoch=1,
+        target_ref_or_path="worktree",
+        created_at=now,
+        updated_at=now,
+    )
+    fresh = Operation(
+        operation_id="operation-fresh",
+        idempotency_key="attempt-1:bundle",
+        attempt_id=AttemptId("attempt-1"),
+        operation_type=OperationType.BUNDLE_BUILD,
+        input_hash="b" * 64,
+        lease_epoch=1,
+        target_ref_or_path="bundle",
+        created_at=now,
+        updated_at=now + timedelta(minutes=5),
+    )
+    with unit_of_work:
+        unit_of_work.add_operation(stale)
+        unit_of_work.add_operation(fresh)
+        unit_of_work.commit()
+    with unit_of_work:
+        operations = unit_of_work.get_stale_operations(
+            updated_before=now + timedelta(minutes=1),
+            statuses=(OperationStatus.PREPARED, OperationStatus.EXECUTING),
+            limit=10,
+        )
+        unit_of_work.commit()
+
+    assert tuple(operation.operation_id for operation in operations) == ("operation-stale",)
 
 
 def test_sqlalchemy_uow_persists_approval_and_resumed_attempt() -> None:
