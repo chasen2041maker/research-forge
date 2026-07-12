@@ -25,8 +25,11 @@ from research_forge.application.use_cases import (
     FinalizeBaselineExecution,
     PersistArtifact,
     PrepareRepairCandidate,
+    RequestRepairApproval,
+    ResolveApproval,
     RunBaselineAttempt,
 )
+from research_forge.domain.errors import OperationConflict
 from research_forge.domain.mission import AttemptStatus, MissionStatus, TaskStatus, TaskType
 
 
@@ -176,24 +179,73 @@ def test_repair_runs_exactly_one_budgeted_candidate_after_a_failed_baseline(tmp_
     repair_lease = ClaimBaselineAttempt(
         unit_of_work=uow, clock=clock, lease_duration=timedelta(seconds=30)
     ).execute(attempt_id=str(repair_attempt.attempt_id), owner="worker-b")
-    engine = FixedPatchDecisionEngine(
+    proposal = ActionProposal(
+        action_type="APPLY_PATCH",
+        unified_diff=(
+            "diff --git a/evaluate.py b/evaluate.py\n"
+            "--- a/evaluate.py\n"
+            "+++ b/evaluate.py\n"
+            "@@ -1,4 +1,4 @@\n"
+            " import json\n"
+            " from pathlib import Path\n"
+            "-VALUE = 0.0\n"
+            "+VALUE = 0.8\n"
+            " Path('metrics.json').write_text(json.dumps({'accuracy': VALUE}))\n"
+        ),
+        rationale_summary="Fix the frozen fixture's constant metric.",
+        expected_artifacts=("metrics.json",),
+    )
+    approval = RequestRepairApproval(
+        unit_of_work=uow,
+        clock=clock,
+        id_generator=ids,
+        approval_ttl=timedelta(minutes=5),
+    ).execute(
+        attempt_id=str(repair_attempt.attempt_id),
+        owner=repair_lease.owner,
+        epoch=repair_lease.epoch,
+        expected_version=repair_lease.version,
+        proposal=proposal,
+    )
+    assert uow.get_mission(mission.mission_id).status is MissionStatus.WAITING_APPROVAL
+    assert uow.get_attempt(str(repair_attempt.attempt_id)).status is AttemptStatus.RETRYABLE
+    resolved = ResolveApproval(unit_of_work=uow, clock=clock, id_generator=ids).execute(
+        approval_id=approval.approval_id,
+        approved=True,
+        decided_by="reviewer-a",
+    )
+    assert resolved.resumed_attempt_id is not None
+    resumed_attempt = uow.get_attempt(resolved.resumed_attempt_id)
+    assert resumed_attempt is not None
+    assert resumed_attempt.resume_from_attempt_id == repair_attempt.attempt_id
+    resumed_lease = ClaimBaselineAttempt(
+        unit_of_work=uow, clock=clock, lease_duration=timedelta(seconds=30)
+    ).execute(attempt_id=resolved.resumed_attempt_id, owner="worker-c")
+    mismatched_engine = FixedPatchDecisionEngine(
         ActionProposal(
             action_type="APPLY_PATCH",
-            unified_diff=(
-                "diff --git a/evaluate.py b/evaluate.py\n"
-                "--- a/evaluate.py\n"
-                "+++ b/evaluate.py\n"
-                "@@ -1,4 +1,4 @@\n"
-                " import json\n"
-                " from pathlib import Path\n"
-                "-VALUE = 0.0\n"
-                "+VALUE = 0.8\n"
-                " Path('metrics.json').write_text(json.dumps({'accuracy': VALUE}))\n"
-            ),
-            rationale_summary="Fix the frozen fixture's constant metric.",
+            unified_diff=proposal.unified_diff.replace("+VALUE = 0.8", "+VALUE = 1.0"),
+            rationale_summary="A proposal whose hash was not approved.",
             expected_artifacts=("metrics.json",),
         )
     )
+    with pytest.raises(OperationConflict, match="hash"):
+        PrepareRepairCandidate(
+            unit_of_work=uow,
+            artifact_store=cas,
+            workspace_manager=workspace_manager,
+            decision_engine=mismatched_engine,
+            clock=clock,
+            id_generator=ids,
+        ).execute(
+            attempt_id=str(resumed_attempt.attempt_id),
+            owner=resumed_lease.owner,
+            epoch=resumed_lease.epoch,
+            expected_version=resumed_lease.version,
+            idempotency_key=f"{resumed_attempt.attempt_id}:mismatched-candidate",
+            approval_id=approval.approval_id,
+        )
+    engine = FixedPatchDecisionEngine(proposal)
     candidate = PrepareRepairCandidate(
         unit_of_work=uow,
         artifact_store=cas,
@@ -202,27 +254,28 @@ def test_repair_runs_exactly_one_budgeted_candidate_after_a_failed_baseline(tmp_
         clock=clock,
         id_generator=ids,
     ).execute(
-        attempt_id=str(repair_attempt.attempt_id),
-        owner=repair_lease.owner,
-        epoch=repair_lease.epoch,
-        expected_version=repair_lease.version,
-        idempotency_key=f"{repair_attempt.attempt_id}:candidate",
+        attempt_id=str(resumed_attempt.attempt_id),
+        owner=resumed_lease.owner,
+        epoch=resumed_lease.epoch,
+        expected_version=resumed_lease.version,
+        idempotency_key=f"{resumed_attempt.attempt_id}:candidate",
+        approval_id=approval.approval_id,
     )
     repair_execution = RunBaselineAttempt(
         unit_of_work=uow, sandbox_executor=sandbox, clock=clock, id_generator=ids
     ).execute(
-        attempt_id=str(repair_attempt.attempt_id),
-        owner=repair_lease.owner,
-        epoch=repair_lease.epoch,
-        expected_version=repair_lease.version,
-        idempotency_key=f"{repair_attempt.attempt_id}:sandbox",
+        attempt_id=str(resumed_attempt.attempt_id),
+        owner=resumed_lease.owner,
+        epoch=resumed_lease.epoch,
+        expected_version=resumed_lease.version,
+        idempotency_key=f"{resumed_attempt.attempt_id}:sandbox",
         worktree_path=candidate.worktree_path,
     )
     finalizer.execute(
-        attempt_id=str(repair_attempt.attempt_id),
-        owner=repair_lease.owner,
-        epoch=repair_lease.epoch,
-        expected_version=repair_lease.version,
+        attempt_id=str(resumed_attempt.attempt_id),
+        owner=resumed_lease.owner,
+        epoch=resumed_lease.epoch,
+        expected_version=resumed_lease.version,
         sandbox_result=repair_execution.sandbox_result,
         commit_sha=candidate.commit_sha,
     )
@@ -235,14 +288,14 @@ def test_repair_runs_exactly_one_budgeted_candidate_after_a_failed_baseline(tmp_
         clock=clock,
         id_generator=ids,
     ).execute(
-        attempt_id=str(repair_attempt.attempt_id),
-        owner=repair_lease.owner,
-        epoch=repair_lease.epoch,
-        expected_version=repair_lease.version,
+        attempt_id=str(resumed_attempt.attempt_id),
+        owner=resumed_lease.owner,
+        epoch=resumed_lease.epoch,
+        expected_version=resumed_lease.version,
         worktree_path=candidate.worktree_path,
     )
 
     assert bundle.sha256
     assert uow.get_mission(mission.mission_id).status is MissionStatus.COMPLETED
-    assert uow.get_attempt(str(repair_attempt.attempt_id)).status is AttemptStatus.SUCCEEDED
+    assert uow.get_attempt(str(resumed_attempt.attempt_id)).status is AttemptStatus.SUCCEEDED
     assert len(engine.requests) == 1

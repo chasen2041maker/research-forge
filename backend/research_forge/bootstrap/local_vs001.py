@@ -28,6 +28,7 @@ from research_forge.application.use_cases import (
     GetMissionStatus,
     PersistArtifact,
     RequestMissionCancellation,
+    ResolveApproval,
     RunBaselineAttempt,
 )
 
@@ -81,6 +82,11 @@ def build_local_vs001_runtime(
             id_generator=identifiers,
         ),
         download_bundle=DownloadBundle(unit_of_work=unit_of_work, artifact_store=artifact_store),
+        resolve_approval=ResolveApproval(
+            unit_of_work=unit_of_work,
+            clock=clock,
+            id_generator=identifiers,
+        ),
     )
     worker = BaselineWorker(
         BaselineWorkerUseCases(

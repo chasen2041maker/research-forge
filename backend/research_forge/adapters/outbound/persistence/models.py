@@ -46,6 +46,7 @@ class AttemptRow(Base):
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     failure_code: Mapped[str | None] = mapped_column(String(128))
+    resume_from_attempt_id: Mapped[str | None] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
@@ -153,3 +154,21 @@ class BundleRow(Base):
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     media_type: Mapped[str] = mapped_column(String(128), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ApprovalRow(Base):
+    __tablename__ = "rf_approvals"
+
+    approval_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    mission_id: Mapped[str] = mapped_column(ForeignKey("rf_missions.mission_id"), nullable=False, index=True)
+    task_id: Mapped[str] = mapped_column(ForeignKey("rf_tasks.task_id"), nullable=False, index=True)
+    attempt_id: Mapped[str] = mapped_column(ForeignKey("rf_attempts.attempt_id"), nullable=False, index=True)
+    action_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    action_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    risk_level: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope: Mapped[str] = mapped_column(String(128), nullable=False)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decided_by: Mapped[str | None] = mapped_column(String(128))

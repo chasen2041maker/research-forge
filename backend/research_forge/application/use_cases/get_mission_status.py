@@ -29,11 +29,26 @@ class TaskStatusView:
 
 
 @dataclass(frozen=True, slots=True)
+class ApprovalStatusView:
+    approval_id: str
+    task_id: str
+    attempt_id: str
+    action_hash: str
+    risk_level: str
+    scope: str
+    status: str
+    requested_at: str
+    expires_at: str
+    decided_by: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class MissionStatusView:
     mission_id: str
     status: str
     spec_sha256: str
     tasks: tuple[TaskStatusView, ...]
+    approvals: tuple[ApprovalStatusView, ...]
     bundle_sha256: str | None
 
 
@@ -67,11 +82,27 @@ class GetMissionStatus:
                 for task in self._unit_of_work.get_tasks_for_mission(mission_id)
             )
             bundle = self._unit_of_work.get_bundle(mission_id)
+            approvals = tuple(
+                ApprovalStatusView(
+                    approval_id=approval.approval_id,
+                    task_id=str(approval.task_id),
+                    attempt_id=str(approval.attempt_id),
+                    action_hash=approval.action_hash,
+                    risk_level=approval.risk_level,
+                    scope=approval.scope,
+                    status=str(approval.status),
+                    requested_at=approval.requested_at.isoformat(),
+                    expires_at=approval.expires_at.isoformat(),
+                    decided_by=approval.decided_by,
+                )
+                for approval in self._unit_of_work.get_approvals_for_mission(mission_id)
+            )
             self._unit_of_work.commit()
         return MissionStatusView(
             mission_id=mission_id,
             status=str(mission.status),
             spec_sha256=mission.spec_sha256,
             tasks=tasks,
+            approvals=approvals,
             bundle_sha256=bundle.artifact.sha256 if bundle is not None else None,
         )

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Self
 
 from research_forge.domain.artifact import ArtifactRegistration
+from research_forge.domain.approval import Approval
 from research_forge.domain.execution import Operation
 from research_forge.domain.evidence import Claim, EvidenceLink, MetricRecord
 from research_forge.domain.mission import Attempt, AuditEvent, Mission, OutboxEvent, Task
@@ -24,6 +25,7 @@ class _State:
     claims: dict[str, Claim] = field(default_factory=dict)
     evidence_by_claim: dict[str, list[EvidenceLink]] = field(default_factory=dict)
     bundles_by_mission: dict[str, ArtifactRegistration] = field(default_factory=dict)
+    approvals: dict[str, Approval] = field(default_factory=dict)
     audits: list[AuditEvent] = field(default_factory=list)
     outbox: list[OutboxEvent] = field(default_factory=list)
 
@@ -127,6 +129,13 @@ class InMemoryUnitOfWork:
             raise ValueError(f"Conflicting bundle registration for mission {mission_id}")
         state.bundles_by_mission[mission_id] = artifact
 
+    def add_approval(self, approval: Approval) -> None:
+        state = self._write()
+        existing = state.approvals.get(approval.approval_id)
+        if existing is not None and existing != approval:
+            raise ValueError(f"Conflicting approval registration: {approval.approval_id}")
+        state.approvals[approval.approval_id] = approval
+
     def get_mission(self, mission_id: str) -> Mission | None:
         return self._read().missions.get(mission_id)
 
@@ -168,6 +177,16 @@ class InMemoryUnitOfWork:
 
     def get_bundle(self, mission_id: str) -> ArtifactRegistration | None:
         return self._read().bundles_by_mission.get(mission_id)
+
+    def get_approval(self, approval_id: str) -> Approval | None:
+        return self._read().approvals.get(approval_id)
+
+    def get_approvals_for_mission(self, mission_id: str) -> tuple[Approval, ...]:
+        return tuple(
+            approval
+            for approval in self._read().approvals.values()
+            if str(approval.mission_id) == mission_id
+        )
 
     def commit(self) -> None:
         if self._working is None:

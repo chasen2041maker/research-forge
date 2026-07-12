@@ -37,8 +37,18 @@ from research_forge.application.use_cases.prepare_repair_candidate import (
     PrepareRepairCandidate,
     RepairCandidateView,
 )
+from research_forge.application.use_cases.request_repair_approval import (
+    ApprovalRequestView,
+    RequestRepairApproval,
+)
+from research_forge.application.use_cases.resolve_approval import (
+    ApprovalNotFound,
+    ApprovalResolutionView,
+    ResolveApproval,
+)
 from research_forge.application.use_cases.download_bundle import BundleDownload, DownloadBundle
 from research_forge.application.use_cases.get_mission_status import (
+    ApprovalStatusView,
     AttemptStatusView,
     GetMissionStatus,
     MissionNotFound,
@@ -48,6 +58,10 @@ from research_forge.application.use_cases.get_mission_status import (
 
 __all__ = [
     "AttemptNotFound",
+    "ApprovalRequestView",
+    "ApprovalResolutionView",
+    "ApprovalNotFound",
+    "ApprovalStatusView",
     "ArtifactView",
     "BaselineExecutionView",
     "BaselineValidationFailure",
@@ -71,9 +85,11 @@ __all__ = [
     "MissionStatusView",
     "PersistArtifact",
     "PrepareRepairCandidate",
+    "RequestRepairApproval",
     "RepairCandidateView",
     "RenewAttemptLease",
     "RunBaselineAttempt",
+    "ResolveApproval",
     "RequestMissionCancellation",
     "TaskStatusView",
     "AttemptStatusView",

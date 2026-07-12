@@ -13,6 +13,7 @@ from research_forge.application.ports.system import Clock, IdGenerator
 from research_forge.application.ports.unit_of_work import UnitOfWork
 from research_forge.application.ports.workspace import WorkspaceManager
 from research_forge.application.use_cases.claim_baseline_attempt import AttemptNotFound
+from research_forge.domain.approval import ApprovalStatus
 from research_forge.domain.artifact import ArtifactKind
 from research_forge.domain.errors import OperationConflict
 from research_forge.domain.execution import Operation, OperationStatus, OperationType
@@ -55,12 +56,15 @@ class PrepareRepairCandidate:
         epoch: int,
         expected_version: int,
         idempotency_key: str,
+        approval_id: str,
     ) -> RepairCandidateView:
-        context = self._load_context(attempt_id, owner, epoch, expected_version)
+        context = self._load_context(attempt_id, owner, epoch, expected_version, approval_id)
         proposal = self._decision_engine.propose(context.request)
         if proposal.action_type != "APPLY_PATCH" or not proposal.unified_diff.strip():
             raise OperationConflict("Repair DecisionEngine may only propose one non-empty APPLY_PATCH action.")
         input_hash = hashlib.sha256(proposal.unified_diff.encode("utf-8")).hexdigest()
+        if input_hash != context.approval_action_hash:
+            raise OperationConflict("Approved patch hash does not match the current DecisionEngine proposal.")
         operation = self._prepare_operation(
             attempt_id=attempt_id,
             owner=owner,
@@ -112,7 +116,7 @@ class PrepareRepairCandidate:
         )
 
     def _load_context(
-        self, attempt_id: str, owner: str, epoch: int, expected_version: int
+        self, attempt_id: str, owner: str, epoch: int, expected_version: int, approval_id: str
     ) -> "_RepairContext":
         now = self._clock.now()
         with self._unit_of_work:
@@ -126,6 +130,13 @@ class PrepareRepairCandidate:
             if mission is None:
                 raise AttemptNotFound(f"mission for attempt {attempt_id}")
             attempt.assert_active_lease(owner=owner, epoch=epoch, expected_version=expected_version, now=now)
+            approval = self._unit_of_work.get_approval(approval_id)
+            if approval is None or approval.status is not ApprovalStatus.APPROVED:
+                raise OperationConflict("Candidate commit requires an approved persistent Approval record.")
+            if approval.scope != "CANDIDATE_COMMIT" or approval.task_id != task.task_id:
+                raise OperationConflict("Approval scope does not authorize this repair candidate task.")
+            if attempt.resume_from_attempt_id != approval.attempt_id:
+                raise OperationConflict("Repair candidate must resume from the Attempt that requested approval.")
             spec = json.loads(mission.normalized_spec_json)
             if spec["mode"] != "repair":
                 raise OperationConflict("Repair candidate requires mode='repair'.")
@@ -155,6 +166,7 @@ class PrepareRepairCandidate:
             allowed_paths=request.allowed_paths,
             max_files=request.max_files,
             max_changed_lines=request.max_changed_lines,
+            approval_action_hash=approval.action_hash,
         )
 
     def _prepare_operation(
@@ -236,3 +248,4 @@ class _RepairContext:
     allowed_paths: tuple[str, ...]
     max_files: int
     max_changed_lines: int
+    approval_action_hash: str

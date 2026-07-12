@@ -9,7 +9,8 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from research_forge.adapters.outbound.persistence import SqlAlchemyUnitOfWork
-from research_forge.adapters.outbound.persistence.models import AuditEventRow, Base, OutboxEventRow
+from research_forge.adapters.outbound.persistence.models import ApprovalRow, AuditEventRow, Base, OutboxEventRow
+from research_forge.domain.approval import Approval, ApprovalStatus
 from research_forge.domain.errors import OptimisticLockConflict
 from research_forge.domain.mission import (
     Attempt,
@@ -98,3 +99,47 @@ def test_sqlalchemy_uow_rejects_a_stale_mission_version() -> None:
             second.commit()
         with pytest.raises(OptimisticLockConflict):
             first.commit()
+
+
+def test_sqlalchemy_uow_persists_approval_and_resumed_attempt() -> None:
+    session_factory = _session_factory()
+    unit_of_work = SqlAlchemyUnitOfWork(session_factory)
+    now = datetime(2026, 7, 12, tzinfo=timezone.utc)
+    _seed(unit_of_work, now)
+
+    with unit_of_work:
+        approval = Approval(
+            approval_id="approval-1",
+            mission_id=MissionId("mission-1"),
+            task_id=TaskId("task-1"),
+            attempt_id=AttemptId("attempt-1"),
+            action_type="CANDIDATE_COMMIT",
+            action_hash="b" * 64,
+            risk_level="HIGH",
+            scope="CANDIDATE_COMMIT",
+            requested_at=now,
+            expires_at=now + timedelta(minutes=5),
+        )
+        approval.approve(decided_by="reviewer", now=now)
+        resumed = Attempt(
+            AttemptId("attempt-2"),
+            TaskId("task-1"),
+            2,
+            0,
+            now,
+            resume_from_attempt_id=AttemptId("attempt-1"),
+        )
+        unit_of_work.add_approval(approval)
+        unit_of_work.add_attempt(resumed)
+        unit_of_work.commit()
+
+    reloaded = SqlAlchemyUnitOfWork(session_factory)
+    with reloaded:
+        approval = reloaded.get_approval("approval-1")
+        resumed = reloaded.get_attempt("attempt-2")
+        assert approval is not None and approval.status is ApprovalStatus.APPROVED
+        assert approval.decided_by == "reviewer"
+        assert resumed is not None and resumed.resume_from_attempt_id == AttemptId("attempt-1")
+        reloaded.commit()
+    with session_factory() as session:
+        assert session.get(ApprovalRow, "approval-1") is not None

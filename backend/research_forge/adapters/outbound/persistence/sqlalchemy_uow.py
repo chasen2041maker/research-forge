@@ -9,6 +9,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from research_forge.domain.artifact import ArtifactKind, ArtifactRef, ArtifactRegistration
+from research_forge.domain.approval import Approval, ApprovalStatus
 from research_forge.domain.errors import OptimisticLockConflict
 from research_forge.domain.evidence import Claim, ClaimStatus, ClaimType, EvidenceLink, EvidenceType, MetricRecord
 from research_forge.domain.execution import Operation, OperationStatus, OperationType
@@ -28,6 +29,7 @@ from research_forge.domain.mission import (
 )
 from research_forge.adapters.outbound.persistence.models import (
     ArtifactRow,
+    ApprovalRow,
     AttemptRow,
     AuditEventRow,
     BundleRow,
@@ -61,6 +63,7 @@ class SqlAlchemyUnitOfWork:
         self._audits: dict[str, AuditEvent] = {}
         self._outbox: dict[str, OutboxEvent] = {}
         self._bundles: dict[str, ArtifactRegistration] = {}
+        self._approvals: dict[str, Approval] = {}
 
     def __enter__(self) -> Self:
         if self._session is not None:
@@ -126,6 +129,10 @@ class SqlAlchemyUnitOfWork:
         self._require_session()
         self._bundles[mission_id] = artifact
 
+    def add_approval(self, approval: Approval) -> None:
+        self._require_session()
+        self._approvals[approval.approval_id] = approval
+
     def get_mission(self, mission_id: str) -> Mission | None:
         if mission_id in self._missions:
             return self._missions[mission_id]
@@ -184,6 +191,7 @@ class SqlAlchemyUnitOfWork:
             heartbeat_at=row.heartbeat_at,
             version=row.version,
             failure_code=row.failure_code,
+            resume_from_attempt_id=AttemptId(row.resume_from_attempt_id) if row.resume_from_attempt_id else None,
         )
         self._attempts[attempt_id] = attempt
         self._attempt_versions[attempt_id] = row.version
@@ -289,6 +297,43 @@ class SqlAlchemyUnitOfWork:
         self._bundles[mission_id] = bundle
         return bundle
 
+    def get_approval(self, approval_id: str) -> Approval | None:
+        cached = self._approvals.get(approval_id)
+        if cached is not None:
+            return cached
+        row = self._require_session().get(ApprovalRow, approval_id)
+        if row is None:
+            return None
+        approval = Approval(
+            approval_id=row.approval_id,
+            mission_id=MissionId(row.mission_id),
+            task_id=TaskId(row.task_id),
+            attempt_id=AttemptId(row.attempt_id),
+            action_type=row.action_type,
+            action_hash=row.action_hash,
+            risk_level=row.risk_level,
+            scope=row.scope,
+            requested_at=row.requested_at,
+            expires_at=row.expires_at,
+            status=ApprovalStatus(row.status),
+            decided_at=row.decided_at,
+            decided_by=row.decided_by,
+        )
+        self._approvals[approval_id] = approval
+        return approval
+
+    def get_approvals_for_mission(self, mission_id: str) -> tuple[Approval, ...]:
+        approval_ids = self._require_session().scalars(
+            select(ApprovalRow.approval_id)
+            .where(ApprovalRow.mission_id == mission_id)
+            .order_by(ApprovalRow.requested_at)
+        )
+        return tuple(
+            approval
+            for approval_id in approval_ids
+            if (approval := self.get_approval(approval_id)) is not None
+        )
+
     def commit(self) -> None:
         session = self._require_session()
         self._flush_missions(session)
@@ -310,6 +355,8 @@ class SqlAlchemyUnitOfWork:
             session.merge(self._outbox_row(outbox))
         for mission_id, bundle in self._bundles.items():
             session.merge(self._bundle_row(mission_id, bundle))
+        for approval in self._approvals.values():
+            session.merge(self._approval_row(approval))
         session.commit()
         self._committed = True
 
@@ -361,6 +408,7 @@ class SqlAlchemyUnitOfWork:
                 "heartbeat_at": attempt.heartbeat_at,
                 "version": attempt.version,
                 "failure_code": attempt.failure_code,
+                "resume_from_attempt_id": str(attempt.resume_from_attempt_id) if attempt.resume_from_attempt_id else None,
                 "created_at": attempt.created_at,
             }
             original_version = self._attempt_versions[attempt_id]
@@ -531,6 +579,24 @@ class SqlAlchemyUnitOfWork:
             created_at=registration.created_at,
         )
 
+    @staticmethod
+    def _approval_row(approval: Approval) -> ApprovalRow:
+        return ApprovalRow(
+            approval_id=approval.approval_id,
+            mission_id=str(approval.mission_id),
+            task_id=str(approval.task_id),
+            attempt_id=str(approval.attempt_id),
+            action_type=approval.action_type,
+            action_hash=approval.action_hash,
+            risk_level=approval.risk_level,
+            scope=approval.scope,
+            requested_at=approval.requested_at,
+            expires_at=approval.expires_at,
+            status=str(approval.status),
+            decided_at=approval.decided_at,
+            decided_by=approval.decided_by,
+        )
+
     def _require_session(self) -> Session:
         if self._session is None:
             raise RuntimeError("SQLAlchemy UoW access requires an active context.")
@@ -550,3 +616,4 @@ class SqlAlchemyUnitOfWork:
         self._audits = {}
         self._outbox = {}
         self._bundles = {}
+        self._approvals = {}

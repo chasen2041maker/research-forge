@@ -7,14 +7,19 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, StrictBool
 
 from research_forge.adapters.inbound.api.controller import MissionController
-from research_forge.application.use_cases import MissionNotFound
+from research_forge.application.use_cases import ApprovalNotFound, MissionNotFound
 
 
 class ReproductionSpecBody(BaseModel):
     spec: dict[str, Any]
+
+
+class ApprovalDecisionBody(BaseModel):
+    approved: StrictBool
+    decided_by: str
 
 
 def create_app(
@@ -75,5 +80,20 @@ def create_app(
             media_type=bundle.media_type,
             headers={"Content-Disposition": f'attachment; filename="{bundle.filename}"'},
         )
+
+    @app.post("/v1/approvals/{approval_id}/decide", dependencies=[Depends(authenticate)])
+    def decide_approval(approval_id: str, body: ApprovalDecisionBody) -> object:
+        if not body.decided_by.strip():
+            raise HTTPException(status_code=422, detail="decided_by must not be blank.")
+        try:
+            return controller.resolve_approval(
+                approval_id=approval_id,
+                approved=body.approved,
+                decided_by=body.decided_by.strip(),
+            )
+        except ApprovalNotFound as exc:
+            raise HTTPException(status_code=404, detail="Approval not found.") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     return app

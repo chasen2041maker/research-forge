@@ -109,6 +109,9 @@ class Mission:
     def begin_verification(self) -> None:
         self._transition(MissionStatus.VERIFYING, {MissionStatus.RUNNING})
 
+    def wait_for_approval(self) -> None:
+        self._transition(MissionStatus.WAITING_APPROVAL, {MissionStatus.RUNNING})
+
     def complete(self) -> None:
         self._transition(MissionStatus.COMPLETED, {MissionStatus.VERIFYING})
 
@@ -176,6 +179,7 @@ class Attempt:
     heartbeat_at: datetime | None = None
     version: int = 0
     failure_code: str | None = None
+    resume_from_attempt_id: AttemptId | None = None
 
     def claim(self, *, owner: str, now: datetime, lease_expires_at: datetime) -> None:
         is_expired = self.lease_expires_at is not None and self.lease_expires_at <= now

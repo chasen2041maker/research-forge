@@ -29,11 +29,25 @@ type Task = {
   attempts: Attempt[];
 };
 
+type Approval = {
+  approval_id: string;
+  task_id: string;
+  attempt_id: string;
+  action_hash: string;
+  risk_level: string;
+  scope: string;
+  status: string;
+  requested_at: string;
+  expires_at: string;
+  decided_by: string | null;
+};
+
 type Mission = {
   mission_id: string;
   status: string;
   spec_sha256: string;
   tasks: Task[];
+  approvals: Approval[];
   bundle_sha256: string | null;
 };
 
@@ -55,7 +69,7 @@ export default function ForgeDashboard() {
   const [missionId, setMissionId] = useState("");
   const [mission, setMission] = useState<Mission | null>(null);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState<"create" | "refresh" | "cancel" | "bundle" | "">("");
+  const [busy, setBusy] = useState<"create" | "refresh" | "cancel" | "bundle" | "approval" | "">("");
   const authenticated = token.trim().length > 0;
   const attemptCount = useMemo(
     () => mission?.tasks.reduce((sum, task) => sum + task.attempts.length, 0) ?? 0,
@@ -139,6 +153,22 @@ export default function ForgeDashboard() {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Bundle download failed.");
     } finally {
+      setBusy("");
+    }
+  }
+
+  async function decideApproval(approval: Approval, approved: boolean) {
+    if (!mission || !authenticated) return;
+    setBusy("approval");
+    setError("");
+    try {
+      await request(`/v1/approvals/${encodeURIComponent(approval.approval_id)}/decide`, {
+        method: "POST",
+        body: JSON.stringify({ approved, decided_by: "local-reviewer" }),
+      });
+      await refresh(mission.mission_id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Approval decision failed.");
       setBusy("");
     }
   }
@@ -243,6 +273,32 @@ export default function ForgeDashboard() {
             </Panel>
           </section>
         </section>
+
+        <Panel icon={<ShieldCheck className="h-5 w-5" />} title="Approvals">
+          {mission?.approvals.length ? (
+            <div className="space-y-3">
+              {mission.approvals.map((approval) => (
+                <article key={approval.approval_id} className="rounded-lg border border-slate-800 bg-slate-950/50 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <div className="flex items-center gap-2"><StatusBadge value={approval.status} detail={approval.scope} /><span className="text-sm font-medium">{approval.risk_level} risk · {approval.scope}</span></div>
+                      <code className="mt-2 block break-all text-xs text-slate-400">{approval.approval_id} · sha256:{approval.action_hash}</code>
+                      <p className="mt-2 text-xs text-slate-500">Requested {new Date(approval.requested_at).toLocaleString()} · expires {new Date(approval.expires_at).toLocaleString()}{approval.decided_by ? ` · decided by ${approval.decided_by}` : ""}</p>
+                    </div>
+                    {approval.status === "PENDING" && (
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => decideApproval(approval, false)} disabled={busy !== ""} className="rounded-md border border-rose-500/60 px-3 py-2 text-sm text-rose-200 hover:bg-rose-500/10 disabled:opacity-40">Reject</button>
+                        <button type="button" onClick={() => decideApproval(approval, true)} disabled={busy !== ""} className="rounded-md border border-emerald-500/60 px-3 py-2 text-sm text-emerald-200 hover:bg-emerald-500/10 disabled:opacity-40">{busy === "approval" ? "Saving…" : "Approve & resume"}</button>
+                      </div>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400">No durable approval is waiting. Candidate work cannot be committed until its matching patch hash is approved.</p>
+          )}
+        </Panel>
 
         <Panel icon={<ClipboardList className="h-5 w-5" />} title="Timeline">
           {mission ? (
