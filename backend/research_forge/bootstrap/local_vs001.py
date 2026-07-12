@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 
+from fastapi import FastAPI
+from research_forge.adapters.inbound.api import MissionController, create_app
 from research_forge.adapters.inbound.worker import BaselineWorker, BaselineWorkerUseCases
 from research_forge.adapters.outbound.artifacts import LocalContentAddressedStore
 from research_forge.adapters.outbound.bundle import DeterministicZipBundleBuilder
@@ -21,8 +23,11 @@ from research_forge.application.use_cases import (
     CreateReproductionMission,
     EnsureBaselineWorkspace,
     FinalizeBaselineExecution,
+    DownloadBundle,
     GetBaselineOutcome,
+    GetMissionStatus,
     PersistArtifact,
+    RequestMissionCancellation,
     RunBaselineAttempt,
 )
 
@@ -34,6 +39,7 @@ class LocalVs001Runtime:
     create_mission: CreateReproductionMission
     worker: BaselineWorker
     unit_of_work: InMemoryUnitOfWork
+    controller: MissionController
 
 
 def build_local_vs001_runtime(
@@ -65,6 +71,16 @@ def build_local_vs001_runtime(
             paper_artifacts=paper_artifacts,
             allowed_image_digests=allowed_image_digests,
         ),
+    )
+    controller = MissionController(
+        create_mission=create_mission,
+        get_status=GetMissionStatus(unit_of_work=unit_of_work),
+        request_cancellation=RequestMissionCancellation(
+            unit_of_work=unit_of_work,
+            clock=clock,
+            id_generator=identifiers,
+        ),
+        download_bundle=DownloadBundle(unit_of_work=unit_of_work, artifact_store=artifact_store),
     )
     worker = BaselineWorker(
         BaselineWorkerUseCases(
@@ -107,4 +123,26 @@ def build_local_vs001_runtime(
         create_mission=create_mission,
         worker=worker,
         unit_of_work=unit_of_work,
+        controller=controller,
     )
+
+
+def build_local_vs001_api(
+    *,
+    schema: Mapping[str, object],
+    workspace_root: Path,
+    artifact_root: Path,
+    paper_artifacts: Mapping[str, str],
+    allowed_image_digests: Set[str],
+    local_token: str,
+    cors_origins: tuple[str, ...] = ("http://localhost:3000",),
+) -> FastAPI:
+    """Compose the development API in Bootstrap while preserving route-to-use-case boundaries."""
+    runtime = build_local_vs001_runtime(
+        schema=schema,
+        workspace_root=workspace_root,
+        artifact_root=artifact_root,
+        paper_artifacts=paper_artifacts,
+        allowed_image_digests=allowed_image_digests,
+    )
+    return create_app(controller=runtime.controller, local_token=local_token, cors_origins=cors_origins)
