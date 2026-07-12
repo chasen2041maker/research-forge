@@ -12,6 +12,7 @@ The `research-forge` user must not be a general administrator. Only `research-fo
 
 - Linux or WSL2 for formal sandbox execution; native Windows is not an acceptance environment.
 - Docker Engine and Docker Compose plugin for PostgreSQL and Redis.
+- Python 3.13 virtual environment with `python -m pip install -r /opt/research-forge/deploy/research-forge/requirements.txt`.
 - Python 3.11+, Git, and a dedicated Linux account named `research-forge`.
 - An installed checkout at `/opt/research-forge`, a virtual environment at `/opt/research-forge/.venv`, and the host directories below owned by `research-forge`.
 

@@ -63,7 +63,7 @@ Mission -> Task -> lease-owned Attempt -> Operation Ledger
 From the repository root:
 
 ```powershell
-python -m pip install alembic fastapi httpx jsonschema pytest ruff sqlalchemy
+python -m pip install -r deploy/research-forge/requirements.txt httpx mypy pytest ruff
 python -m pytest backend/tests/research_forge -q
 python -m ruff check backend/research_forge backend/tests/research_forge
 python backend/scripts/run_frozen_research_forge_eval.py
@@ -77,7 +77,7 @@ npm install
 npm run build
 ```
 
-The GitHub Actions workflow runs mypy, the non-Docker suite, architecture checks, Alembic upgrade/downgrade contract, a separate Linux Docker end-to-end gate, and the 16-case frozen evaluation manifest on every push to `main`. The custom AST checks enforce the inbound/outbound/decision boundary, platform SDK ownership, public-signature shape, and an acyclic internal import graph. The evaluation job retains a JSON artifact containing all Case outcomes and the Manifest SHA-256.
+The GitHub Actions workflow runs mypy, secret scanning, the non-Docker suite, architecture checks, Alembic upgrade/downgrade contract, a separate Linux Docker end-to-end gate, dependency vulnerability and license reports, and the 16-case frozen evaluation manifest on every push to `main`. The custom AST checks enforce the inbound/outbound/decision boundary, platform SDK ownership, public-signature shape, and an acyclic internal import graph. The evaluation job retains a JSON artifact containing all Case outcomes and the Manifest SHA-256.
 
 ## Core concepts
 

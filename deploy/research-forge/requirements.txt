@@ -1,0 +1,9 @@
+# Runtime dependencies for the shipped Research Forge VS-001 process roles.
+# Development tooling and the isolated legacy co_scientist stack intentionally do not belong here.
+alembic>=1.13,<2
+fastapi>=0.115,<1
+jsonschema>=4.23,<5
+psycopg2-binary>=2.9,<3
+redis>=5,<7
+sqlalchemy>=2,<3
+uvicorn[standard]>=0.30,<1

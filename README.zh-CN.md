@@ -57,7 +57,7 @@ Mission -> Task -> 由租约拥有的 Attempt -> Operation Ledger
 在仓库根目录执行：
 
 ```powershell
-python -m pip install alembic fastapi httpx jsonschema pytest ruff sqlalchemy
+python -m pip install -r deploy/research-forge/requirements.txt httpx mypy pytest ruff
 python -m pytest backend/tests/research_forge -q
 python -m ruff check backend/research_forge backend/tests/research_forge
 python backend/scripts/run_frozen_research_forge_eval.py
@@ -71,7 +71,7 @@ npm install
 npm run build
 ```
 
-GitHub Actions 会在每次推送到 `main` 时运行 mypy、非 Docker 测试、架构门禁、Alembic 升级/降级契约、独立的 Linux Docker 端到端门禁和 16 用例冻结评测。自定义 AST 门禁会验证 inbound/outbound/decision 边界、平台 SDK 归属、公开签名形状以及内部导入图无环。评测任务会保留包含所有 Case 结果与 Manifest SHA-256 的 JSON artifact。
+GitHub Actions 会在每次推送到 `main` 时运行 mypy、秘密扫描、非 Docker 测试、架构门禁、Alembic 升级/降级契约、独立的 Linux Docker 端到端门禁、依赖漏洞与许可证报告，以及 16 用例冻结评测。自定义 AST 门禁会验证 inbound/outbound/decision 边界、平台 SDK 归属、公开签名形状以及内部导入图无环。评测任务会保留包含所有 Case 结果与 Manifest SHA-256 的 JSON artifact。
 
 ## 核心概念
 
