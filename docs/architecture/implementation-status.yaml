@@ -37,7 +37,7 @@ capabilities:
   bounded_repair_decision_and_patch_binding:
     status: implemented
     evidence: backend/tests/research_forge/test_repair_flow.py
-    implemented: The decision port receives verified baseline log, allowed paths, and change budgets only; its unified diff is persisted as a CAS PATCH artifact, and approval binds that exact artifact hash before candidate execution.
+    implemented: The limited LLM decision adapter receives verified baseline log, allowed paths, and change budgets only; its unified diff is persisted as a CAS PATCH artifact, and approval binds that exact artifact hash before candidate execution.
     absent: The shipped production composition deliberately has no configured LLM provider or repair worker process.
   studio_forge_contract_boundary:
     status: implemented
