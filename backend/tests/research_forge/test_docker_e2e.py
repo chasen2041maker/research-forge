@@ -149,16 +149,19 @@ def _start_broker_process(
         stdout=PIPE,
         stderr=PIPE,
     )
+    client = UnixSandboxBrokerClient(socket_path=socket_path)
     deadline = time.monotonic() + 10
-    while not socket_path.exists() and time.monotonic() < deadline:
+    while time.monotonic() < deadline:
         if process.poll() is not None:
             output = process.communicate(timeout=1)
             raise RuntimeError(f"Broker process exited early: {output!r}")
-        time.sleep(0.05)
-    if not socket_path.exists():
-        process.terminate()
-        raise RuntimeError("Broker socket did not become ready.")
-    return process, UnixSandboxBrokerClient(socket_path=socket_path)
+        try:
+            if client.get_completed("broker-readiness") is None:
+                return process, client
+        except SandboxBrokerUnavailable:
+            time.sleep(0.05)
+    process.terminate()
+    raise RuntimeError("Broker socket did not become ready.")
 
 
 def _stop_broker_process(process: Popen[bytes]) -> None:
