@@ -6,6 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Self
 
+from research_forge.domain.artifact import ArtifactRegistration
 from research_forge.domain.execution import Operation
 from research_forge.domain.mission import Attempt, AuditEvent, Mission, OutboxEvent, Task
 
@@ -17,6 +18,7 @@ class _State:
     attempts: dict[str, Attempt] = field(default_factory=dict)
     operations: dict[str, Operation] = field(default_factory=dict)
     operation_keys: dict[str, str] = field(default_factory=dict)
+    artifacts_by_operation: dict[str, ArtifactRegistration] = field(default_factory=dict)
     audits: list[AuditEvent] = field(default_factory=list)
     outbox: list[OutboxEvent] = field(default_factory=list)
 
@@ -35,6 +37,10 @@ class InMemoryUnitOfWork:
     @property
     def outbox(self) -> tuple[OutboxEvent, ...]:
         return tuple(self._state.outbox)
+
+    @property
+    def artifacts(self) -> tuple[ArtifactRegistration, ...]:
+        return tuple(self._state.artifacts_by_operation.values())
 
     def __enter__(self) -> Self:
         if self._working is not None:
@@ -73,6 +79,13 @@ class InMemoryUnitOfWork:
         state.operations[operation.operation_id] = operation
         state.operation_keys[operation.idempotency_key] = operation.operation_id
 
+    def add_artifact(self, registration: ArtifactRegistration) -> None:
+        state = self._write()
+        existing = state.artifacts_by_operation.get(registration.operation_id)
+        if existing is not None and existing != registration:
+            raise ValueError(f"Conflicting artifact registration for operation {registration.operation_id}")
+        state.artifacts_by_operation[registration.operation_id] = registration
+
     def get_mission(self, mission_id: str) -> Mission | None:
         return self._read().missions.get(mission_id)
 
@@ -86,6 +99,9 @@ class InMemoryUnitOfWork:
         state = self._read()
         operation_id = state.operation_keys.get(idempotency_key)
         return state.operations.get(operation_id) if operation_id is not None else None
+
+    def get_artifact_by_operation_id(self, operation_id: str) -> ArtifactRegistration | None:
+        return self._read().artifacts_by_operation.get(operation_id)
 
     def commit(self) -> None:
         if self._working is None:

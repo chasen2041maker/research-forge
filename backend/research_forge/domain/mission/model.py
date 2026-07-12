@@ -265,6 +265,10 @@ class Attempt:
         if self.lease_expires_at is None or self.lease_expires_at <= now:
             raise LeaseLost("Worker lease has expired.")
 
+    def assert_active_lease(self, *, owner: str, epoch: int, expected_version: int, now: datetime) -> None:
+        """Check a lease before or after an external side effect without mutating state."""
+        self._assert_active_lease(owner=owner, epoch=epoch, expected_version=expected_version, now=now)
+
 
 @dataclass(frozen=True, slots=True)
 class AuditEvent:

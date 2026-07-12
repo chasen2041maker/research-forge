@@ -32,3 +32,11 @@ class OptimisticLockConflict(DomainViolation):
 
 class OperationConflict(DomainViolation):
     """Raised when an operation's immutable identity conflicts with an existing one."""
+
+
+class ArtifactIntegrityViolation(DomainViolation):
+    """Raised when content-addressed bytes no longer match their digest."""
+
+
+class PathSafetyViolation(DomainViolation):
+    """Raised when a filesystem path escapes a registered workspace or CAS root."""
