@@ -16,9 +16,29 @@
 
 > Turn a paper, pinned repository, immutable execution specification, and fixed metric into an auditable experiment and a replayable bundle.
 
-Research Forge is a control plane for research reproduction. It does not accept a result merely because a worker says it passed: the result must be tied to a pinned commit, an operation ledger, content-addressed artifacts, a deterministic metric, evidence links, and a reproducible Bundle.
+Research Forge is a product for turning research directions into reproducible claims. It does not accept a result merely because a worker says it passed: the result must be tied to a pinned commit, an operation ledger, content-addressed artifacts, a deterministic metric, evidence links, and a reproducible Bundle.
 
-**Status:** the VS-001 baseline slice, bounded repair workflow, durable approval flow, minimal local API/UI, SQLAlchemy persistence adapter, Alembic revisions, Linux Docker gate, and host-process production composition/runbook are implemented and covered by CI. The legacy AI Co-Scientist demo remains isolated under [`backend/co_scientist`](backend/co_scientist).
+**Status:** the VS-001 baseline slice, bounded repair workflow, durable approval flow, Studio → Forge JSON handoff, minimal local API/UI, SQLAlchemy persistence adapter, Alembic revisions, Linux Docker gate, and host-process production composition/runbook are implemented and covered by CI. The legacy AI Co-Scientist demo remains isolated under [`backend/co_scientist`](backend/co_scientist).
+
+## One product, two honest modes
+
+| Mode | Responsibility | Output status |
+| --- | --- | --- |
+| [Research Studio](frontend/src/app/studio/page.tsx) | Explore a question, literature, gaps, critiques, experiment plans, and code suggestions. | `UNVERIFIED` `ResearchProposal v1` |
+| [Forge Runtime](frontend/src/app/forge/page.tsx) | Freeze a spec, validate pins and budgets, execute, extract metrics, close evidence, and seal a Bundle. | `VERIFIED` `VerifiedResult v1` only after normal closure |
+| Full research loop | Let a user explicitly complete Studio's missing hashes, commit, image, command, metric, and budgets before creating a normal Forge Mission. | Proposal stays unverified until Forge proves it |
+
+```text
+Research Studio                         Forge Runtime
+question -> papers -> plan      Proposal + human completion -> frozen ReproductionSpec
+            |                                |
+            +--- UNVERIFIED JSON ----------->| pinned Git -> sandbox -> metric -> evidence -> Bundle
+```
+
+Studio and Forge do not import each other's graph, state, workers, adapters, or persistence
+models. Their shared vocabulary lives in [`backend/research_contracts`](backend/research_contracts),
+and the one-way handoff lives in [`backend/research_gateway`](backend/research_gateway). See the
+[product architecture](docs/product/overview.md) for the boundary and API details.
 
 ## Why Research Forge?
 
@@ -54,7 +74,8 @@ Mission -> Task -> lease-owned Attempt -> Operation Ledger
 - Offline Docker execution on Linux with no network, read-only root filesystem, dropped capabilities, non-root user, and a broker boundary.
 - Deterministic metric extraction, verified claims, and evidence closure.
 - One bounded repair flow: proposal -> persisted approval -> fresh child Attempt -> candidate commit -> candidate run -> evidence-gated Bundle.
-- FastAPI local-token surface for Mission status, cancellation, Bundle download, and approval decisions; the Next.js Forge console reads that state without owning it.
+- FastAPI local-token surface for Mission status, cancellation, Bundle download, approval decisions, and `POST /v1/proposals/handoff`; the Next.js Forge console reads that state without owning it.
+- A versioned JSON-only bridge: a completed Studio run can be exported at `GET /api/research/{fork_id}/proposal`, then a user-confirmed completion form is compiled into Forge's unchanged `ReproductionSpec v1` Mission boundary.
 - SQLAlchemy source-of-truth adapter, static Alembic revisions, CI migration upgrade/downgrade verification, and a real PostgreSQL service gate.
 - A frozen 16-case release manifest with the baseline end-to-end proof repeated 10 times, repeated recovery cases, append-only JSON reports, and a retained GitHub Actions artifact.
 - Structured JSON host-process logs with bounded correlation fields and credential redaction; durable Audit/Outbox records remain the business evidence source.
@@ -65,8 +86,8 @@ From the repository root:
 
 ```powershell
 python -m pip install -r deploy/research-forge/requirements.txt httpx mypy pytest ruff
-python -m pytest backend/tests/research_forge -q
-python -m ruff check backend/research_forge backend/tests/research_forge
+python -m pytest backend/tests/research_forge backend/tests/research_integration -q
+python -m ruff check backend/research_forge backend/research_contracts backend/research_gateway backend/co_scientist/public_api backend/tests/research_forge backend/tests/research_integration
 python backend/scripts/run_frozen_research_forge_eval.py
 ```
 
@@ -79,6 +100,20 @@ npm run build
 ```
 
 The GitHub Actions workflow runs mypy, secret scanning, the non-Docker suite, architecture checks, Alembic upgrade/downgrade contract, a separate Linux Docker end-to-end gate, dependency vulnerability and license reports, and the 16-case frozen evaluation manifest on every push to `main`. The custom AST checks enforce the inbound/outbound/decision boundary, platform SDK ownership, public-signature shape, and an acyclic internal import graph. The evaluation job retains a JSON artifact containing all Case outcomes and the Manifest SHA-256.
+
+## Studio → Forge handoff
+
+1. Finish an exploration in Studio, then request `GET /api/research/{fork_id}/proposal`.
+2. Treat the returned `ResearchProposal v1` as a suggestion: it is structurally marked `UNVERIFIED`.
+3. In the Forge console's **Studio → Forge handoff** panel, paste the Proposal and explicitly fill
+   the paper artifact hash, repository commit, image digest, setup/run arguments, metric, change
+   budget, and runtime budgets.
+4. Forge calls the normal frozen-spec Mission creation path. It still rejects invalid JSON Schema,
+   unavailable pins, disallowed images, and unsatisfied prerequisite checks.
+
+The handoff never copies a Studio suggestion into an execution field automatically. A future Studio
+report may read `VerifiedResult v1`, but it will not change the evidence gate or make unverified
+output look verified.
 
 ## Core concepts
 
@@ -182,14 +217,14 @@ Research Forge does **not** currently claim browser automation, MCP, Skills, mul
 
 ## Further reading
 
-- [ReproductionSpec v1](docs/规范/科研复现任务规范_v1.md)
-- [VS-001 baseline vertical slice](docs/规范/基线复现纵向切片规范.md)
-- [Architecture blueprint](docs/架构设计/科研复现智能体架构蓝图.md)
-- [Layering and governance rules](docs/架构设计/代码分层与架构治理规范.md)
-- [Accepted ADRs](docs/架构决策记录)
-- [Production deployment and recovery runbook](docs/operations/research-forge-deployment.md)
-- [Legacy system notes](docs/旧版资料/旧版系统说明.md)
+- [ReproductionSpec v1](docs/contracts/reproduction-spec-v1.md)
+- [Historical VS-001 implementation plan](docs/history/implementation-plans/vs-001.md)
+- [System overview](docs/architecture/system-overview.md)
+- [Layering and governance rules](docs/architecture/core-governance.md)
+- [Architecture decisions](docs/adr/README.md)
+- [Production deployment and recovery runbook](docs/operations/deployment.md)
+- [Research Studio notes](docs/studio/overview.md)
 
 ## License
 
-No repository license has been selected yet. Until one is added, this repository does not grant permission to reuse or redistribute its code.
+Licensed under the [Apache License 2.0](LICENSE).

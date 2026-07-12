@@ -216,7 +216,7 @@ def _spec(repository: Path, commit_sha: str) -> dict[str, object]:
 
 
 def _validator() -> JsonSchemaReproductionSpecValidator:
-    schema_path = Path(__file__).resolve().parents[3] / "docs" / "规范" / "科研复现任务规范_v1.schema.json"
+    schema_path = Path(__file__).resolve().parents[3] / "docs" / "contracts" / "reproduction-spec-v1.schema.json"
     return JsonSchemaReproductionSpecValidator(json.loads(schema_path.read_text(encoding="utf-8")))
 
 
@@ -353,7 +353,7 @@ def test_no_llm_baseline_flow_creates_verified_metric_evidence(tmp_path: Path) -
 
 def test_queue_redelivery_after_db_completion_reuses_the_existing_bundle(tmp_path: Path) -> None:
     repository, commit_sha = _fixture_repository(tmp_path)
-    schema_path = Path(__file__).resolve().parents[3] / "docs" / "规范" / "科研复现任务规范_v1.schema.json"
+    schema_path = Path(__file__).resolve().parents[3] / "docs" / "contracts" / "reproduction-spec-v1.schema.json"
     runtime = build_local_vs001_runtime(
         schema=json.loads(schema_path.read_text(encoding="utf-8")),
         workspace_root=tmp_path / "workspaces",
@@ -452,7 +452,7 @@ def test_worker_renews_lease_during_sandbox_execution_before_finalizing(tmp_path
 
 def test_worker_cancellation_stops_the_sandbox_and_registers_no_artifact(tmp_path: Path) -> None:
     repository, commit_sha = _fixture_repository(tmp_path)
-    schema_path = Path(__file__).resolve().parents[3] / "docs" / "规范" / "科研复现任务规范_v1.schema.json"
+    schema_path = Path(__file__).resolve().parents[3] / "docs" / "contracts" / "reproduction-spec-v1.schema.json"
     sandbox = _BlockingSandbox()
     runtime = build_local_vs001_runtime(
         schema=json.loads(schema_path.read_text(encoding="utf-8")),

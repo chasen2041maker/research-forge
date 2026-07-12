@@ -8,6 +8,10 @@ from pathlib import Path
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2] / "research_forge"
+BACKEND_ROOT = PACKAGE_ROOT.parent
+STUDIO_ROOT = BACKEND_ROOT / "co_scientist"
+CONTRACT_ROOT = BACKEND_ROOT / "research_contracts"
+GATEWAY_ROOT = BACKEND_ROOT / "research_gateway"
 FORBIDDEN_FRAMEWORKS = {"celery", "docker", "fastapi", "langgraph", "pydantic", "redis", "sqlalchemy"}
 PLATFORM_IMPORT_OWNERS = {
     "celery": ("adapters/outbound/queue/",),
@@ -110,6 +114,78 @@ def test_architecture_import_contracts() -> None:
             if owner_paths is not None and not _is_owned_by(relative, owner_paths):
                 violations.append(f"{relative}: platform dependency {imported} is outside its adapter boundary")
     assert not violations, "\n".join(violations)
+
+
+def test_studio_forge_contract_boundary_is_one_way_and_product_neutral() -> None:
+    """Keep the shared Contract and handoff from becoming a hidden package-level merge."""
+    violations: list[str] = []
+    for path in STUDIO_ROOT.rglob("*.py"):
+        relative = path.relative_to(BACKEND_ROOT).as_posix()
+        for imported in _imports(path):
+            if imported == "research_forge" or imported.startswith("research_forge."):
+                violations.append(f"{relative}: Studio imports Forge implementation {imported}")
+
+    for path in CONTRACT_ROOT.rglob("*.py"):
+        relative = path.relative_to(BACKEND_ROOT).as_posix()
+        for imported in _imports(path):
+            if imported.startswith("co_scientist") or imported.startswith("research_forge"):
+                violations.append(f"{relative}: neutral contract imports product package {imported}")
+
+    for path in GATEWAY_ROOT.rglob("*.py"):
+        relative = path.relative_to(BACKEND_ROOT).as_posix()
+        for imported in _imports(path):
+            forbidden_studio = (
+                imported == "co_scientist"
+                or imported.startswith("co_scientist.graph")
+                or imported.startswith("co_scientist.state")
+                or imported.startswith("co_scientist.modules")
+            )
+            forbidden_forge = imported == "research_forge" or imported.startswith("research_forge.")
+            if forbidden_studio or forbidden_forge:
+                violations.append(f"{relative}: bridge imports a product implementation {imported}")
+    assert not violations, "\n".join(violations)
+
+
+def test_research_state_stays_frozen_while_handoff_uses_the_public_snapshot() -> None:
+    """New product handoff must not add data fields to the legacy graph's ResearchState."""
+    state_path = STUDIO_ROOT / "state" / "research_state.py"
+    tree = ast.parse(state_path.read_text(encoding="utf-8"), filename=str(state_path))
+    state = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "ResearchState"
+    )
+    actual = {
+        statement.target.id
+        for statement in state.body
+        if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name)
+    }
+    expected = {
+        "raw_question",
+        "topic_cards",
+        "current_topic_id",
+        "pico",
+        "papers",
+        "rewritten_queries",
+        "evidence_access_status",
+        "triples",
+        "research_gaps",
+        "gap_cards",
+        "current_gap_id",
+        "critiques",
+        "meta_decision",
+        "decision_card",
+        "recalled_memories",
+        "experiment_plan",
+        "code_artifact",
+        "execution_mode",
+        "paper_draft",
+        "fork_id",
+        "parent_fork_id",
+        "error_log",
+        "metadata",
+    }
+    assert actual == expected
 
 
 def test_public_signatures_do_not_expose_bare_dict_any() -> None:

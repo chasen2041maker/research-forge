@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/chasen2041maker/research-forge/contracts/research-proposal-v1.schema.json",
+  "title": "Research Forge ResearchProposal v1",
+  "description": "Unverified research direction exported by Research Studio.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "proposal_id", "studio_run_id", "research_question", "hypothesis", "paper_refs", "repository_candidate", "objective", "suggested_execution", "allowed_change_paths", "evidence_refs", "missing_fields", "status"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "proposal_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "studio_run_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "research_question": { "type": "string", "minLength": 1, "maxLength": 12000 },
+    "hypothesis": { "type": "string", "minLength": 1, "maxLength": 12000 },
+    "paper_refs": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["paper_id", "title", "url"],
+        "properties": {
+          "paper_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+          "title": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "url": { "type": "string", "maxLength": 2048 }
+        }
+      }
+    },
+    "repository_candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "commit_sha"],
+      "properties": {
+        "url": { "type": "string", "maxLength": 2048 },
+        "commit_sha": { "type": "string", "maxLength": 128 }
+      }
+    },
+    "objective": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "metric_name"],
+      "properties": {
+        "description": { "type": "string", "minLength": 1, "maxLength": 12000 },
+        "metric_name": { "type": "string", "maxLength": 256 }
+      }
+    },
+    "suggested_execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_argv", "metric_artifact_path", "metric_json_pointer"],
+      "properties": {
+        "run_argv": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 4096 } },
+        "metric_artifact_path": { "type": "string", "maxLength": 1024 },
+        "metric_json_pointer": { "type": "string", "maxLength": 1024 }
+      }
+    },
+    "allowed_change_paths": { "type": "array", "maxItems": 20, "uniqueItems": true, "items": { "type": "string", "maxLength": 1024 } },
+    "evidence_refs": { "type": "array", "maxItems": 100, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 2048 } },
+    "missing_fields": { "type": "array", "maxItems": 40, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 128 } },
+    "status": { "const": "UNVERIFIED" }
+  }
+}

@@ -15,10 +15,10 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r deploy/research-forge/requirements.txt httpx mypy pytest ruff
-      - run: python -m mypy backend/research_forge --follow-imports=skip --ignore-missing-imports --check-untyped-defs --warn-unused-ignores
+      - run: python -m mypy backend/research_forge backend/research_contracts backend/research_gateway --follow-imports=skip --ignore-missing-imports --check-untyped-defs --warn-unused-ignores
       - run: python backend/scripts/check_research_forge_secrets.py
-      - run: python -m pytest backend/tests/research_forge -q -m 'not docker'
-      - run: python -m ruff check backend/research_forge backend/tests/research_forge
+      - run: python -m pytest backend/tests/research_forge backend/tests/research_integration -q -m 'not docker'
+      - run: python -m ruff check backend/research_forge backend/research_contracts backend/research_gateway backend/co_scientist/public_api backend/tests/research_forge backend/tests/research_integration
 
   docker-vs001-gate:
     runs-on: ubuntu-latest

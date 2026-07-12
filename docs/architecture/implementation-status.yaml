@@ -1,0 +1,42 @@
+schema_version: 1
+generated_for: Research Forge v0.1
+rules:
+  implemented: Code and automated checks exist for the stated scope.
+  partial: The design exists, but important documented behavior is absent or limited.
+  planned: No shipped implementation claim is made.
+capabilities:
+  application_centric_hexagonal_architecture:
+    status: implemented
+    evidence: backend/tests/research_forge/test_architecture.py
+  postgres_mission_source_of_truth:
+    status: implemented
+    evidence: backend/tests/research_forge/test_postgres_source_of_truth.py
+  operation_ledger_and_stale_redelivery:
+    status: partial
+    implemented: Reconciler scans stale Operations and emits an Outbox redelivery.
+    absent: It does not discover orphan CAS bytes, existing Git commits, or missing database references.
+  worker_lease_and_cancellation:
+    status: partial
+    implemented: Mission and Attempt use optimistic versions, leases, heartbeats, and cancellation paths.
+    absent: Task, Operation, and Approval do not all have the governance document's versioned concurrency contract.
+  sandbox_broker_recovery:
+    status: partial
+    implemented: Duplicate completion can be recovered while the same broker process is alive.
+    absent: Broker completion state is in-process memory and is lost when that process restarts.
+  reproduction_spec_v1:
+    status: implemented
+    evidence: docs/contracts/reproduction-spec-v1.schema.json
+  runtime_capability_profile:
+    status: partial
+    implemented: Current subset is documented in runtime-capability-profile-v0.1.md.
+    absent: Schema allowances are broader than VS-001 runtime behavior.
+  redis_attempt_transport:
+    status: partial
+    implemented: Redis transports Attempt IDs.
+    absent: Versioned message envelopes, streams, visibility timeouts, routing, and DLQ are not implemented.
+  studio_forge_contract_boundary:
+    status: implemented
+    evidence: backend/tests/research_integration/test_studio_forge_handoff.py
+  independent_external_fixture_evaluation:
+    status: planned
+    absent: No external-fixture statistical evaluation claim is made.

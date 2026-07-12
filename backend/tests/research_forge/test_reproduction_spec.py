@@ -71,8 +71,8 @@ def validator() -> JsonSchemaReproductionSpecValidator:
     schema_path = (
         Path(__file__).resolve().parents[3]
         / "docs"
-        / "规范"
-        / "科研复现任务规范_v1.schema.json"
+        / "contracts"
+        / "reproduction-spec-v1.schema.json"
     )
     return JsonSchemaReproductionSpecValidator(json.loads(schema_path.read_text(encoding="utf-8")))
 

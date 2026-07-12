@@ -33,12 +33,13 @@ from co_scientist.graph import run_pipeline
 from co_scientist.modules.m1_refiner.refiner import check_specificity
 from co_scientist.modules.m0_topic_discovery import discover_topics
 from co_scientist.modules.m8_replay import ForkManager
+from co_scientist.public_api import ExplorationSnapshot, export_proposal
 from co_scientist.utils import get_tracker, logger, setup_logger
 
 # 程序启动时初始化日志
 setup_logger()
 
-app = FastAPI(title="AI Co-Scientist API", version="0.1.0")
+app = FastAPI(title="Research Studio API", version="0.1.0")
 
 # 开发期允许所有来源,生产应限制
 app.add_middleware(
@@ -132,7 +133,7 @@ class M1ClarifyRequest(BaseModel):
 
 @app.get("/")
 def root() -> dict:
-    return {"service": "AI Co-Scientist", "version": "0.1.0"}
+    return {"service": "Research Studio", "legacy_package": "co_scientist", "version": "0.1.0"}
 
 
 @app.get("/api/health")
@@ -508,6 +509,18 @@ def research_status(fork_id: str) -> dict:
     if not run:
         raise HTTPException(404, "fork_id 不存在")
     return run
+
+
+@app.get("/api/research/{fork_id}/proposal")
+def research_proposal(fork_id: str) -> dict[str, object]:
+    """Export a finished Studio run as an explicitly unverified, portable Proposal."""
+    run = _runs.get(fork_id)
+    if not run:
+        raise HTTPException(404, "fork_id 不存在")
+    if run.get("status") != "done" or not isinstance(run.get("state"), dict):
+        raise HTTPException(409, "研究尚未完成，暂时不能导出 Proposal")
+    snapshot = ExplorationSnapshot.create(run_id=fork_id, state=run["state"])
+    return export_proposal(snapshot).to_mapping()
 
 
 @app.post("/api/forks/create")

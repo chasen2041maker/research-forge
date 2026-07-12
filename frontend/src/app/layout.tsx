@@ -2,7 +2,7 @@ import "./globals.css";
 
 export const metadata = {
   title: "Research Forge",
-  description: "Evidence-gated research reproduction control plane.",
+  description: "Explore research directions, then verify reproducible claims with evidence.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

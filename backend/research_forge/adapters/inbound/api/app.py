@@ -10,10 +10,17 @@ from pydantic import BaseModel, StrictBool
 
 from research_forge.adapters.inbound.api.controller import MissionController
 from research_forge.application.use_cases import ApprovalNotFound, MissionNotFound
+from research_contracts import ResearchProposalV1
+from research_gateway import ProposalCompletionV1, compile_proposal
 
 
 class ReproductionSpecBody(BaseModel):
     spec: dict[str, object]
+
+
+class ProposalHandoffBody(BaseModel):
+    proposal: dict[str, object]
+    completion: dict[str, object]
 
 
 class ApprovalDecisionBody(BaseModel):
@@ -53,6 +60,20 @@ def create_app(
     def create_mission(body: ReproductionSpecBody) -> object:
         try:
             return controller.create(body.spec)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/v1/proposals/handoff", dependencies=[Depends(authenticate)])
+    def handoff_proposal(body: ProposalHandoffBody) -> object:
+        """Compile user-confirmed Studio output, then use the ordinary frozen-spec Mission path."""
+        try:
+            proposal = ResearchProposalV1.from_mapping(body.proposal)
+            completion = ProposalCompletionV1.from_mapping(body.completion)
+            built = compile_proposal(proposal=proposal, completion=completion)
+            return {
+                "proposal_id": built.proposal_id,
+                "mission": controller.create(built.spec),
+            }
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 

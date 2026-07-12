@@ -62,14 +62,32 @@ const initialSpec = `{
   "budget": { "max_wall_time_seconds": 300, "max_cost_usd": 0, "max_artifact_bytes": 10485760, "max_log_bytes": 1048576 }
 }`;
 
+const initialProposal = `{
+  "schema_version": 1,
+  "proposal_id": "proposal-from-studio",
+  "studio_run_id": "studio-run-id",
+  "research_question": "Paste the completed Studio Proposal here.",
+  "hypothesis": "This remains unverified until Forge closes the evidence gate.",
+  "paper_refs": [],
+  "repository_candidate": { "url": "", "commit_sha": "" },
+  "objective": { "description": "", "metric_name": "" },
+  "suggested_execution": { "run_argv": [], "metric_artifact_path": "", "metric_json_pointer": "" },
+  "allowed_change_paths": [],
+  "evidence_refs": [],
+  "missing_fields": [],
+  "status": "UNVERIFIED"
+}`;
+
 export default function ForgeDashboard() {
   const apiBase = process.env.NEXT_PUBLIC_RESEARCH_FORGE_API_URL ?? "http://127.0.0.1:8000";
   const [token, setToken] = useState("");
   const [specText, setSpecText] = useState(initialSpec);
+  const [proposalText, setProposalText] = useState(initialProposal);
+  const [completionText, setCompletionText] = useState(initialSpec);
   const [missionId, setMissionId] = useState("");
   const [mission, setMission] = useState<Mission | null>(null);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState<"create" | "refresh" | "cancel" | "bundle" | "approval" | "">("");
+  const [busy, setBusy] = useState<"create" | "handoff" | "refresh" | "cancel" | "bundle" | "approval" | "">("");
   const authenticated = token.trim().length > 0;
   const attemptCount = useMemo(
     () => mission?.tasks.reduce((sum, task) => sum + task.attempts.length, 0) ?? 0,
@@ -120,6 +138,27 @@ export default function ForgeDashboard() {
       await refresh(created.mission_id);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Mission creation failed.");
+      setBusy("");
+    }
+  }
+
+  async function handoffProposal(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!authenticated) return;
+    setBusy("handoff");
+    setError("");
+    try {
+      const proposal = JSON.parse(proposalText) as object;
+      const completion = JSON.parse(completionText) as object;
+      const response = await request("/v1/proposals/handoff", {
+        method: "POST",
+        body: JSON.stringify({ proposal, completion }),
+      });
+      const handoff = (await response.json()) as { mission: { mission_id: string } };
+      setMissionId(handoff.mission.mission_id);
+      await refresh(handoff.mission.mission_id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Proposal handoff failed.");
       setBusy("");
     }
   }
@@ -205,6 +244,31 @@ export default function ForgeDashboard() {
             <a href="#mission" className="mt-8 inline-flex items-center gap-2 rounded-lg bg-cyan-300 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200">Launch a Mission <span aria-hidden>→</span></a>
           </div>
         </section>
+
+        <form onSubmit={handoffProposal} className="rounded-2xl border border-violet-300/20 bg-slate-950/75 p-5 shadow-2xl shadow-black/20 sm:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.16em] text-violet-200">Studio → Forge handoff</p>
+              <h2 className="mt-2 text-xl font-semibold">Turn an unverified direction into a frozen Mission.</h2>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Paste the Proposal exported by Studio, then explicitly complete every paper pin, repository commit, image, command, metric, and budget. Forge performs its normal validation and prerequisite checks after this form.</p>
+            </div>
+            <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1.5 text-xs font-medium text-amber-100">Proposal ≠ verified result</span>
+          </div>
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            <label className="block text-xs font-medium uppercase tracking-wider text-slate-400">
+              Unverified ResearchProposal v1
+              <textarea className="mt-2 h-64 w-full resize-y rounded-md border border-slate-700 bg-slate-950 p-3 font-mono text-xs normal-case leading-5 text-slate-100 outline-none ring-violet-500 focus:ring-2" value={proposalText} onChange={(event) => setProposalText(event.target.value)} spellCheck={false} />
+            </label>
+            <label className="block text-xs font-medium uppercase tracking-wider text-slate-400">
+              Human-confirmed completion (ReproductionSpec fields)
+              <textarea className="mt-2 h-64 w-full resize-y rounded-md border border-slate-700 bg-slate-950 p-3 font-mono text-xs normal-case leading-5 text-slate-100 outline-none ring-cyan-500 focus:ring-2" value={completionText} onChange={(event) => setCompletionText(event.target.value)} spellCheck={false} />
+            </label>
+          </div>
+          <button className="mt-4 inline-flex items-center gap-2 rounded-md bg-violet-300 px-4 py-2.5 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40" disabled={!authenticated || busy !== ""}>
+            {busy === "handoff" ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitBranch className="h-4 w-4" />}
+            Compile & create Forge Mission
+          </button>
+        </form>
 
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <DashboardSignal label="Mission state" value={mission?.status ?? "NOT STARTED"} detail={mission ? "Durable source of truth" : "Create or load a Mission"} />

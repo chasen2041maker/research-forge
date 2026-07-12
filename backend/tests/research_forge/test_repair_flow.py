@@ -74,7 +74,7 @@ def _git(*arguments: str, cwd: Path) -> str:
 
 
 def _schema() -> dict[str, object]:
-    schema_path = Path(__file__).resolve().parents[3] / "docs" / "规范" / "科研复现任务规范_v1.schema.json"
+    schema_path = Path(__file__).resolve().parents[3] / "docs" / "contracts" / "reproduction-spec-v1.schema.json"
     return json.loads(schema_path.read_text(encoding="utf-8"))
 
 

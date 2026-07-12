@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/chasen2041maker/research-forge/contracts/verified-result-v1.schema.json",
+  "title": "Research Forge VerifiedResult v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "proposal_id", "mission_id", "spec_sha256", "metric", "bundle_sha256", "completed_at", "status"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "proposal_id": { "type": "string", "minLength": 1 },
+    "mission_id": { "type": "string", "minLength": 1 },
+    "spec_sha256": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
+    "metric": { "type": "object", "minProperties": 1 },
+    "bundle_sha256": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
+    "completed_at": { "type": "string", "format": "date-time" },
+    "status": { "const": "VERIFIED" }
+  }
+}
