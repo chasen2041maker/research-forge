@@ -13,6 +13,7 @@ import pytest
 from research_forge.adapters.outbound.artifacts import LocalContentAddressedStore
 from research_forge.adapters.outbound.git import GitWorktreeManager
 from research_forge.adapters.outbound.persistence import InMemoryUnitOfWork
+from research_forge.application.dto import CandidateCommitRequest
 from research_forge.application.use_cases import (
     ClaimBaselineAttempt,
     EnsureBaselineWorkspace,
@@ -212,3 +213,92 @@ def test_workspace_creation_is_registered_through_the_operation_ledger(tmp_path:
     operation = uow.get_operation_by_idempotency_key("attempt-1:baseline-worktree")
     assert operation is not None and operation.status is OperationStatus.SUCCEEDED
     assert operation.external_result_ref == first.worktree_path
+
+
+def test_candidate_worktree_commits_only_a_budgeted_allowlisted_patch_once(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "target.py").write_text("VALUE = 0\n", encoding="utf-8")
+    _git("init", cwd=source)
+    _git("config", "user.email", "tests@example.invalid", cwd=source)
+    _git("config", "user.name", "Research Forge Tests", cwd=source)
+    _git("add", "target.py", cwd=source)
+    _git("commit", "-m", "fixture", cwd=source)
+    parent_sha = _git("rev-parse", "HEAD", cwd=source)
+    manager = GitWorktreeManager(tmp_path / "workspaces")
+    manager.ensure_baseline(
+        mission_id="mission-1",
+        repository_url_or_path=str(source),
+        expected_commit_sha=parent_sha,
+    )
+    candidate = manager.ensure_candidate(mission_id="mission-1", expected_parent_commit_sha=parent_sha)
+    request = CandidateCommitRequest(
+        worktree_path=candidate.worktree_path,
+        unified_diff=(
+            "diff --git a/target.py b/target.py\n"
+            "--- a/target.py\n"
+            "+++ b/target.py\n"
+            "@@ -1 +1 @@\n"
+            "-VALUE = 0\n"
+            "+VALUE = 1\n"
+        ),
+        allowed_paths=("target.py",),
+        max_files=1,
+        max_changed_lines=2,
+        operation_id="operation-1",
+        input_hash="a" * 64,
+        expected_parent_sha=parent_sha,
+    )
+
+    committed = manager.commit_candidate(request)
+    replayed = manager.commit_candidate(request)
+
+    assert committed == replayed
+    assert committed.commit_sha != parent_sha
+    assert committed.changed_paths == ("target.py",)
+    assert committed.changed_lines == 2
+    assert _git("show", "-s", "--format=%B", committed.commit_sha, cwd=Path(candidate.worktree_path)).find(
+        "Research-Forge-Operation: operation-1"
+    ) >= 0
+
+
+def test_candidate_patch_rejects_paths_outside_its_frozen_budget(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "allowed.py").write_text("VALUE = 0\n", encoding="utf-8")
+    (source / "forbidden.py").write_text("VALUE = 0\n", encoding="utf-8")
+    _git("init", cwd=source)
+    _git("config", "user.email", "tests@example.invalid", cwd=source)
+    _git("config", "user.name", "Research Forge Tests", cwd=source)
+    _git("add", "allowed.py", "forbidden.py", cwd=source)
+    _git("commit", "-m", "fixture", cwd=source)
+    parent_sha = _git("rev-parse", "HEAD", cwd=source)
+    manager = GitWorktreeManager(tmp_path / "workspaces")
+    manager.ensure_baseline(
+        mission_id="mission-1",
+        repository_url_or_path=str(source),
+        expected_commit_sha=parent_sha,
+    )
+    candidate = manager.ensure_candidate(mission_id="mission-1", expected_parent_commit_sha=parent_sha)
+
+    with pytest.raises(Exception, match="disallowed path"):
+        manager.commit_candidate(
+            CandidateCommitRequest(
+                worktree_path=candidate.worktree_path,
+                unified_diff=(
+                    "diff --git a/forbidden.py b/forbidden.py\n"
+                    "--- a/forbidden.py\n"
+                    "+++ b/forbidden.py\n"
+                    "@@ -1 +1 @@\n"
+                    "-VALUE = 0\n"
+                    "+VALUE = 1\n"
+                ),
+                allowed_paths=("allowed.py",),
+                max_files=1,
+                max_changed_lines=2,
+                operation_id="operation-1",
+                input_hash="a" * 64,
+                expected_parent_sha=parent_sha,
+            )
+        )
+    assert _git("status", "--porcelain", cwd=Path(candidate.worktree_path)) == ""

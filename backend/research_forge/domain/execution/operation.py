@@ -15,6 +15,7 @@ class OperationType(StrEnum):
     SANDBOX_RUN = "SANDBOX_RUN"
     CAS_PUT = "CAS_PUT"
     BUNDLE_BUILD = "BUNDLE_BUILD"
+    CANDIDATE_COMMIT = "CANDIDATE_COMMIT"
 
 
 class OperationStatus(StrEnum):

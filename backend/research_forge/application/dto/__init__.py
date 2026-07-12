@@ -7,6 +7,12 @@ from research_forge.application.dto.reproduction_spec import (
 )
 from research_forge.application.dto.sandbox import NetworkPolicy, SandboxResult, SandboxRunRequest
 from research_forge.application.dto.bundle import BundleBuildInput
+from research_forge.application.dto.repair import (
+    ActionProposal,
+    CandidateCommit,
+    CandidateCommitRequest,
+    DecisionRequest,
+)
 
 __all__ = [
     "JsonSchemaReproductionSpecValidator",
@@ -14,6 +20,10 @@ __all__ = [
     "ReproductionSpecValidationError",
     "NetworkPolicy",
     "BundleBuildInput",
+    "ActionProposal",
+    "CandidateCommit",
+    "CandidateCommitRequest",
+    "DecisionRequest",
     "SandboxResult",
     "SandboxRunRequest",
 ]

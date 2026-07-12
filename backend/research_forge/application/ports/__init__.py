@@ -7,11 +7,12 @@ from research_forge.application.ports.queue import TaskQueue
 from research_forge.application.ports.reproduction_prerequisites import ReproductionPrerequisiteVerifier
 from research_forge.application.ports.system import Clock, IdGenerator
 from research_forge.application.ports.unit_of_work import UnitOfWork
-from research_forge.application.ports.workspace import BaselineWorkspace, WorkspaceManager
+from research_forge.application.ports.workspace import BaselineWorkspace, CandidateWorkspace, WorkspaceManager
 
 __all__ = [
     "ArtifactStore",
     "BaselineWorkspace",
+    "CandidateWorkspace",
     "BundleBuilder",
     "Clock",
     "IdGenerator",
