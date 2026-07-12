@@ -2,8 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
 body {
-  background: #0a0a0f;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 8% -10%, rgba(34, 211, 238, 0.14), transparent 27rem),
+    radial-gradient(circle at 93% 12%, rgba(99, 102, 241, 0.13), transparent 25rem),
+    #060a12;
   color: #e7e7ee;
-  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+::selection {
+  background: rgba(103, 232, 249, 0.28);
+  color: white;
 }

@@ -1,14 +1,14 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "AI Co-Scientist",
-  description: "你的 AI 科研合伙人",
+  title: "Research Forge",
+  description: "Evidence-gated research reproduction control plane.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body className="antialiased">{children}</body>
     </html>
   );
 }

@@ -174,9 +174,9 @@ export default function ForgeDashboard() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 px-5 py-8 text-slate-100 sm:px-8">
+    <main className="min-h-screen px-4 py-4 text-slate-100 sm:px-6 lg:px-8">
       <section className="mx-auto max-w-7xl space-y-6">
-        <header className="flex flex-col gap-4 border-b border-slate-800 pb-6 md:flex-row md:items-end md:justify-between">
+        <header className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-4 shadow-xl shadow-black/20 backdrop-blur md:flex-row md:items-center md:justify-between">
           <div>
             <div className="mb-2 flex items-center gap-2 text-sm font-medium text-cyan-300">
               <ShieldCheck className="h-4 w-4" /> Evidence-gated research reproduction
@@ -186,14 +186,35 @@ export default function ForgeDashboard() {
               Immutable Spec → pinned execution → verified metric → reproducible Bundle.
             </p>
           </div>
-          <div className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-sm">
+          <div className="rounded-xl border border-cyan-300/15 bg-cyan-300/[.06] px-4 py-3 text-sm">
             <div className="text-slate-400">Current Mission</div>
             <code className="text-cyan-200">{mission?.mission_id ?? "not selected"}</code>
           </div>
         </header>
 
-        <section className="grid gap-4 lg:grid-cols-[1.15fr_.85fr]">
-          <form onSubmit={createMission} className="rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-2xl shadow-black/20">
+        <section className="relative overflow-hidden rounded-3xl border border-cyan-300/15 bg-slate-950/80 px-6 py-10 shadow-2xl shadow-black/30 sm:px-10 sm:py-14">
+          <div className="pointer-events-none absolute -right-24 -top-36 h-96 w-96 rounded-full bg-cyan-400/10 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-36 left-1/3 h-80 w-80 rounded-full bg-indigo-500/15 blur-3xl" />
+          <div className="relative max-w-3xl">
+            <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1.5 text-xs font-medium text-emerald-200"><ShieldCheck className="h-3.5 w-3.5" /> Deterministic evidence gate · local-first control plane</div>
+            <h2 className="mt-5 text-4xl font-semibold tracking-[-0.04em] text-white sm:text-6xl">Make every experiment <span className="text-cyan-300">auditable</span> before it ships.</h2>
+            <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">Research Forge binds a paper, pinned Git commit, offline execution plan, and fixed metric into a reproducible evidence bundle. Completion is a proof, not a promise.</p>
+            <div className="mt-7 flex flex-wrap gap-2">
+              {['Pinned Git', 'Offline run', 'CAS verified', 'Lease safe'].map((capability) => <span key={capability} className="rounded-full border border-white/10 bg-white/[.045] px-3 py-1.5 text-xs text-slate-300">{capability}</span>)}
+            </div>
+            <a href="#mission" className="mt-8 inline-flex items-center gap-2 rounded-lg bg-cyan-300 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200">Launch a Mission <span aria-hidden>→</span></a>
+          </div>
+        </section>
+
+        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <DashboardSignal label="Mission state" value={mission?.status ?? "NOT STARTED"} detail={mission ? "Durable source of truth" : "Create or load a Mission"} />
+          <DashboardSignal label="Attempts" value={String(attemptCount)} detail="Lease-owned execution records" />
+          <DashboardSignal label="Approvals" value={String(mission?.approvals.filter((approval) => approval.status === "PENDING").length ?? 0)} detail="Workers never wait in-process" />
+          <DashboardSignal label="Research bundle" value={mission?.bundle_sha256 ? "SEALED" : "NOT SEALED"} detail={mission?.bundle_sha256 ? "Evidence artifact ready" : "Metric closure required"} />
+        </section>
+
+        <section id="mission" className="grid gap-4 lg:grid-cols-[1.15fr_.85fr]">
+          <form onSubmit={createMission} className="rounded-2xl border border-white/10 bg-slate-950/75 p-5 shadow-2xl shadow-black/20 sm:p-6">
             <div className="mb-4 flex items-center gap-2">
               <ClipboardList className="h-5 w-5 text-cyan-300" />
               <h2 className="font-semibold">Mission</h2>
@@ -341,7 +362,15 @@ export default function ForgeDashboard() {
 }
 
 function Panel({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
-  return <section className="rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-2xl shadow-black/20"><h2 className="mb-4 flex items-center gap-2 font-semibold text-slate-100">{icon}{title}</h2>{children}</section>;
+  return <section className="rounded-2xl border border-white/10 bg-slate-950/75 p-5 shadow-2xl shadow-black/20"><h2 className="mb-4 flex items-center gap-2 font-semibold text-slate-100">{icon}{title}</h2>{children}</section>;
+}
+
+function DashboardSignal({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return <section className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+    <p className="text-[11px] font-medium uppercase tracking-[.15em] text-slate-500">{label}</p>
+    <p className="mt-2 font-mono text-lg text-cyan-100">{value}</p>
+    <p className="mt-1 text-xs text-slate-500">{detail}</p>
+  </section>;
 }
 
 function Metric({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {

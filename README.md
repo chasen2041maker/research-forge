@@ -1,147 +1,189 @@
-# Research Forge
+<p align="center">
+  <strong>RESEARCH FORGE</strong><br />
+  Evidence-gated research reproduction for pinned experiments.
+</p>
 
-> **Project status: VS-001 baseline-reproduction vertical slice implemented and locally verified.**
+<p align="center">
+  <a href="https://github.com/chasen2041maker/research-forge/actions/workflows/research-forge.yml"><img src="https://github.com/chasen2041maker/research-forge/actions/workflows/research-forge.yml/badge.svg" alt="Research Forge gates" /></a>
+  <img src="https://img.shields.io/badge/execution-offline%20by%20default-22c55e" alt="Offline by default" />
+  <img src="https://img.shields.io/badge/evidence-deterministic-06b6d4" alt="Deterministic evidence" />
+  <img src="https://img.shields.io/badge/runtime-Python%203.11%2B-6366f1" alt="Python 3.11+" />
+</p>
 
-Research Forge is being redesigned as an evidence-gated research reproduction agent:
+> Turn a paper, pinned repository, immutable execution specification, and fixed metric into an auditable experiment and a replayable bundle.
 
-> **Paper + pinned repository + deterministic execution spec → auditable Git experiment → verified claims → reproducible bundle.**
+Research Forge is a control plane for research reproduction. It does not accept a result merely because a worker says it passed: the result must be tied to a pinned commit, an operation ledger, content-addressed artifacts, a deterministic metric, evidence links, and a reproducible Bundle.
 
-中文定位：
+**Status:** the VS-001 baseline slice, bounded repair workflow, durable approval flow, minimal local API/UI, SQLAlchemy persistence adapter, Alembic revisions, and Linux Docker gate are implemented and covered by CI. The legacy AI Co-Scientist demo remains isolated under [`backend/co_scientist`](backend/co_scientist).
 
-> **一个证据门控的科研复现 Agent，把论文与固定版本代码仓库转化为可审计实验、逐条结论溯源和可复评交付包。**
+## Why Research Forge?
 
-## Important status notice
+Research automation often breaks in quiet ways:
 
-The current executable code under [`backend/co_scientist`](./backend/co_scientist) is the legacy AI Co-Scientist demo. It contains a fixed LangGraph research pipeline, literature retrieval, critique, experiment/code generation, paper drafting and SQLite-based branch metadata.
+- a metric is reported without the exact commit that produced it;
+- a killed worker retries a side effect and writes conflicting state;
+- an artifact changes after a result has been accepted;
+- a candidate patch is committed without an attributable human approval;
+- a dashboard presents process-local state as if it were durable truth.
 
-The new [`backend/research_forge`](./backend/research_forge) package now implements the no-LLM VS-001 baseline path with a typed `ReproductionSpec` validator, durable Mission/Task/Attempt state model, lease/epoch protection, Operation Ledger, isolated Git baseline worktree, local CAS, deterministic metric/evidence gate, deterministic bundle and Worker retry handling. The legacy package remains isolated.
-
-The production PostgreSQL/Celery deployment adapters, repair slice, API/UI and formal Linux/WSL2 Docker security gate remain separate follow-on work; they are not represented as completed by the local development runtime.
-
-The old README and its historical feature descriptions are preserved at:
-
-[旧版系统说明](./docs/旧版资料/旧版系统说明.md)
-
-## v0.1 scope
-
-v0.1 supports one bounded mission defined by a machine-validatable `ReproductionSpec`:
+Research Forge is deliberately narrow. It gives a reproduction Mission a deterministic proof path before it becomes complete.
 
 ```text
-Pinned paper artifact
-  + pinned Git commit
-  + immutable execution image
-  + fixed argv command
-  + deterministic metric pointer/tolerance
-  + explicit change budget
-        ↓
-Baseline reproduction
-        ↓
-One optional repair commit and run
-        ↓
-Claim → Evidence → Metric Artifact → Commit
-        ↓
-Reproducible Research Bundle
+Frozen ReproductionSpec
+        |
+        v
+Mission -> Task -> lease-owned Attempt -> Operation Ledger
+        |                                  |
+        |                                  v
+        +-> pinned Git worktree -> offline sandbox -> CAS artifacts
+                                                    |
+                                                    v
+                                  metric -> claim -> evidence -> Bundle
 ```
 
-v0.1 deliberately excludes Browser automation, MCP, first-class Skills, Reviewer teams, Draft PR creation, semantic long-term memory, multi-candidate search and autonomous Skill/Prompt evolution.
+## What works today
 
-## Architecture documents
+- `ReproductionSpec v1` JSON-schema validation, cross-field rules, prerequisite checks, and immutable normalized specs.
+- Durable Mission / Task / Attempt state, optimistic versions, lease epochs, heartbeats, cancellation, Audit events, and Outbox events.
+- Git baseline and bounded candidate worktrees with idempotent operation records and strict patch budgets.
+- Content-addressed artifacts with SHA-256 verification and safe deterministic Bundle replay extraction.
+- Offline Docker execution on Linux with no network, read-only root filesystem, dropped capabilities, non-root user, and a broker boundary.
+- Deterministic metric extraction, verified claims, and evidence closure.
+- One bounded repair flow: proposal -> persisted approval -> fresh child Attempt -> candidate commit -> candidate run -> evidence-gated Bundle.
+- FastAPI local-token surface for Mission status, cancellation, Bundle download, and approval decisions; the Next.js Forge console reads that state without owning it.
+- SQLAlchemy source-of-truth adapter, static Alembic revisions, and CI migration upgrade/downgrade verification.
 
-- [v0.1 科研复现智能体架构蓝图](./docs/架构设计/科研复现智能体架构蓝图.md)
-- [代码分层与架构治理规范](./docs/架构设计/代码分层与架构治理规范.md)
-- [科研复现任务规范 v1](./docs/规范/科研复现任务规范_v1.md)
-- [科研复现任务规范 JSON Schema](./docs/规范/科研复现任务规范_v1.schema.json)
-- [第一条无 LLM 基线复现纵向切片](./docs/规范/基线复现纵向切片规范.md)
-- [GPT 第二轮架构送审包](./docs/架构审查/GPT第二轮架构送审包.md)
-- [GPT 第二轮架构审查结果](./docs/架构审查/GPT第二轮架构审查结果.md)
+## 10-second proof
 
-### Accepted ADRs
-
-- [架构决策记录 001：分层架构](./docs/架构决策记录/架构决策记录-001-分层架构.md)
-- [架构决策记录 002：事实来源](./docs/架构决策记录/架构决策记录-002-事实来源.md)
-- [架构决策记录 003：跨存储操作](./docs/架构决策记录/架构决策记录-003-跨存储操作.md)
-- [架构决策记录 004：工作进程生命周期](./docs/架构决策记录/架构决策记录-004-工作进程生命周期.md)
-- [架构决策记录 005：沙箱平台](./docs/架构决策记录/架构决策记录-005-沙箱平台.md)
-
-## First implementation milestone
-
-The first vertical slice contains no LLM, LangGraph, Skill, MCP, Reviewer, Writer or UI. It now proves in the local deterministic test runtime:
-
-1. a validated `ReproductionSpec` creates a Mission;
-2. a durable Worker claims an Attempt using Lease/Epoch;
-3. a pinned repository is executed in a baseline worktree;
-4. the execution runs offline in a fixed sandbox image;
-5. logs and metrics enter a local content-addressed store;
-6. a forced Worker crash resumes without duplicate side effects;
-7. a deterministic metric produces a replayable bundle.
-
-Only after this slice passes its formal Linux/WSL2 Docker security gate will the project add the LLM repair decision adapter.
-
-### VS-001 local verification
+From the repository root:
 
 ```powershell
+python -m pip install alembic fastapi httpx jsonschema pytest ruff sqlalchemy
 python -m pytest backend/tests/research_forge -q
 python -m ruff check backend/research_forge backend/tests/research_forge
 ```
 
-The end-to-end test creates a pinned Git fixture, executes the fixed command through the development-only argv runner, verifies `/accuracy`, writes log/metric/bundle artifacts to CAS, extracts the bundled source archive and replays the command. The Docker Broker implementation is intentionally restricted to Linux/WSL2; Windows native development does not constitute the formal container-security acceptance gate.
+Build the Forge console:
 
-## Architecture rules
-
-```text
-Inbound Adapters → Application → Domain
-Decision Adapter → DecisionEngine Port
-Outbound Adapters → Application Ports
-Bootstrap → Composition Root
+```powershell
+cd frontend
+npm install
+npm run build
 ```
 
-Key constraints:
+The GitHub Actions workflow runs the non-Docker suite, architecture checks, Alembic upgrade/downgrade contract, and a separate Linux Docker end-to-end gate on every push to `main`.
 
-- Application is the only side-effect orchestration center;
-- decision code can only return `ActionProposal`;
-- PostgreSQL owns business state;
-- Git owns code state;
-- the content-addressed store owns Artifact bytes;
-- LangGraph checkpoints only own temporary Attempt context;
-- API routes cannot access ORM/Git/Docker/LLM directly;
-- decision adapters cannot access Git/Sandbox/Artifact/Queue/Repository;
-- architecture import rules must be enforced in CI.
+## Core concepts
 
-## Planned delivery
+| Concept | What it means | Why it matters |
+| --- | --- | --- |
+| `Mission` | Immutable normalized reproduction specification and top-level lifecycle. | Gives every result a stable identity. |
+| `Task` / `Attempt` | Work unit and a specific lease-owned execution. | Old workers cannot finalize newer work. |
+| `Operation` | Idempotency record around a cross-store effect. | Recovery does not duplicate Git, CAS, or sandbox effects. |
+| CAS artifact | SHA-256-addressed execution log, metric, source archive, or Bundle. | Artifact tampering is detectable. |
+| Claim + Evidence | A metric statement linked to the artifacts that support it. | The UI does not display unsupported results as facts. |
+| Approval | Durable decision for one high-risk repair patch hash. | Workers exit instead of blocking; a changed patch cannot reuse approval. |
+| Bundle | Deterministic replay deliverable. | A completed Mission can be independently checked. |
 
-The reviewed estimate is 10 weeks of core development plus a 2-week release buffer:
-
-1. scope, ADRs and fixture;
-2. layered skeleton and architecture CI;
-3. transactional state and Operation Ledger;
-4. durable Worker lifecycle;
-5. Git worktree and local CAS recovery;
-6. hardened sandbox and no-LLM baseline slice;
-7. Evidence Gate;
-8. security and environment preparation;
-9. one bounded LLM repair slice;
-10. minimal API/UI;
-11. evaluation and hardening;
-12. documentation, demo and release.
-
-## Verification
-
-The combined suite was last run locally on 2026-07-12:
+## Quick architecture
 
 ```text
-176 passed, 9 skipped
+Inbound API / Worker
+        |
+        v
+Application use cases
+        |
+        +--> Domain: Mission, Attempt, Approval, Operation, Evidence
+        |
+        +--> Ports: UoW, Git, Sandbox, CAS, Decision Engine
+                    |
+                    v
+          PostgreSQL / Git / Docker broker / local CAS
 ```
 
-This includes the new VS-001 domain, recovery, architecture and local end-to-end tests. Formal Docker/WSL2 security validation remains an environment-specific release gate.
+The architecture is application-centric by design:
 
-## Development policy
+- FastAPI routes and workers call use cases only; they do not access ORM, Git, Docker, or the Decision Engine's side-effect capabilities directly.
+- PostgreSQL is the business source of truth; Git owns code state; CAS owns artifact bytes.
+- A `DecisionEngine` returns an untrusted `ActionProposal` only. Application policy validates its path budget, approval, patch hash, and operation ledger before Git can commit.
+- Windows native is a UI/development environment. Formal container-security acceptance is Linux/WSL2 only.
 
-- New core features go into the new `research_forge` package once implementation begins.
-- The legacy `co_scientist` package receives only compatibility fixes during migration.
-- New code must not import legacy internals; only an explicit legacy adapter may do so.
-- The legacy implementation is removed no later than two release cycles after the new baseline slice becomes stable.
-- README claims must link to code, tests, traces or immutable artifacts.
+## Repair flow
+
+```text
+Baseline validation fails in repair mode
+        |
+        v
+Repair worker reads verified baseline log
+        |
+        v
+DecisionEngine proposes exactly one patch
+        |
+        v
+Approval persists patch SHA-256; worker exits
+        |
+        v
+Reviewer approves -> child Attempt + Outbox event
+        |
+        v
+Repair worker verifies matching patch, commits once, runs once, validates metric
+```
+
+The included adapter for tests is deterministic (`FixedPatchDecisionEngine`). No LLM repair runtime is represented as shipped; an LLM-based decision adapter must satisfy the same narrow `DecisionEngine` port and cannot receive Git, Docker, CAS, Queue, or database capabilities.
+
+## Forge console
+
+The Next.js UI at [`frontend/src/app/forge`](frontend/src/app/forge) is a local control plane rather than a second source of truth. It provides:
+
+1. Mission creation from a frozen spec and local API token.
+2. Durable Task / Attempt timeline with lease epochs and failure status.
+3. Explicit high-risk patch approvals with reviewer identity.
+4. Verified Bundle download only after evidence closure.
+
+The local API defaults to loopback and requires a Bearer token. CORS is restricted to configured local origins.
+
+## Security boundaries
+
+- Formal run stages use `--network none`; no run-stage network is allowed.
+- The Docker broker is the only execution boundary that invokes Docker. API and ordinary workers do not require the Docker socket.
+- Candidate commits are limited by allowed paths, file count, changed lines, one commit, and one run.
+- Archive extraction rejects traversal, absolute paths, links, and unexpected members.
+- The approval record binds scope, task, parent Attempt, decision identity, expiry, and the exact patch hash.
+- Cancel, lease loss, stale epoch, and stale optimistic version are durable state transitions, not UI flags.
+
+## Project map
+
+```text
+backend/research_forge/
+  domain/                 Mission, approval, operation, artifact, evidence rules
+  application/            use cases, DTOs, and ports
+  adapters/inbound/       FastAPI and lease-owned workers
+  adapters/outbound/      SQLAlchemy, Git, CAS, sandbox, system adapters
+  bootstrap/              explicit composition roots
+frontend/src/app/forge/   local evidence-gated console
+docs/                     specification, ADRs, architecture, and review material
+```
+
+## Roadmap and boundaries
+
+Implemented core work is intentionally focused on reproducibility and recoverability. Planned work should build on these invariants rather than bypass them:
+
+- PostgreSQL / queue / broker production deployment composition and operational runbooks.
+- Expanded frozen evaluation corpus and release scorecard.
+- A narrowly-capable LLM `DecisionEngine` adapter, only after its policy and supply-chain gates are in place.
+- Documentation and demo fixtures for a clean-machine local run.
+
+Research Forge does **not** currently claim browser automation, MCP, Skills, multi-candidate search, autonomous PR creation, or general scientific writing as v0.1 features.
+
+## Further reading
+
+- [ReproductionSpec v1](docs/规范/科研复现任务规范_v1.md)
+- [VS-001 baseline vertical slice](docs/规范/基线复现纵向切片规范.md)
+- [Architecture blueprint](docs/架构设计/科研复现智能体架构蓝图.md)
+- [Layering and governance rules](docs/架构设计/代码分层与架构治理规范.md)
+- [Accepted ADRs](docs/架构决策记录)
+- [Legacy system notes](docs/旧版资料/旧版系统说明.md)
 
 ## License
 
-A repository license has not yet been selected. Until a license is added, the repository should not be treated as granting permission to reuse or redistribute its code.
+No repository license has been selected yet. Until one is added, this repository does not grant permission to reuse or redistribute its code.
