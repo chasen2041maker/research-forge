@@ -21,18 +21,29 @@ from research_forge.application.use_cases.ensure_baseline_workspace import (
     EnsureBaselineWorkspace,
     WorkspaceView,
 )
+from research_forge.application.use_cases.run_baseline_attempt import BaselineExecutionView, RunBaselineAttempt
+from research_forge.application.use_cases.finalize_baseline_execution import (
+    BaselineValidationFailure,
+    FinalizeBaselineExecution,
+    FinalizedBaselineView,
+)
 
 __all__ = [
     "AttemptNotFound",
     "ArtifactView",
+    "BaselineExecutionView",
+    "BaselineValidationFailure",
     "ClaimBaselineAttempt",
     "CreateReproductionMission",
     "EnsureBaselineWorkspace",
+    "FinalizeBaselineExecution",
+    "FinalizedBaselineView",
     "HeartbeatView",
     "LeaseView",
     "MissionView",
     "PersistArtifact",
     "RenewAttemptLease",
+    "RunBaselineAttempt",
     "RequestMissionCancellation",
     "WorkspaceView",
 ]

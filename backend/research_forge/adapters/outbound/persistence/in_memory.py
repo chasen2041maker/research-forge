@@ -8,6 +8,7 @@ from typing import Self
 
 from research_forge.domain.artifact import ArtifactRegistration
 from research_forge.domain.execution import Operation
+from research_forge.domain.evidence import Claim, EvidenceLink, MetricRecord
 from research_forge.domain.mission import Attempt, AuditEvent, Mission, OutboxEvent, Task
 
 
@@ -19,6 +20,9 @@ class _State:
     operations: dict[str, Operation] = field(default_factory=dict)
     operation_keys: dict[str, str] = field(default_factory=dict)
     artifacts_by_operation: dict[str, ArtifactRegistration] = field(default_factory=dict)
+    metrics_by_attempt: dict[str, MetricRecord] = field(default_factory=dict)
+    claims: dict[str, Claim] = field(default_factory=dict)
+    evidence_by_claim: dict[str, list[EvidenceLink]] = field(default_factory=dict)
     audits: list[AuditEvent] = field(default_factory=list)
     outbox: list[OutboxEvent] = field(default_factory=list)
 
@@ -41,6 +45,10 @@ class InMemoryUnitOfWork:
     @property
     def artifacts(self) -> tuple[ArtifactRegistration, ...]:
         return tuple(self._state.artifacts_by_operation.values())
+
+    @property
+    def metrics(self) -> tuple[MetricRecord, ...]:
+        return tuple(self._state.metrics_by_attempt.values())
 
     def __enter__(self) -> Self:
         if self._working is not None:
@@ -86,6 +94,27 @@ class InMemoryUnitOfWork:
             raise ValueError(f"Conflicting artifact registration for operation {registration.operation_id}")
         state.artifacts_by_operation[registration.operation_id] = registration
 
+    def add_metric(self, metric: MetricRecord) -> None:
+        state = self._write()
+        attempt_id = str(metric.attempt_id)
+        existing = state.metrics_by_attempt.get(attempt_id)
+        if existing is not None and existing != metric:
+            raise ValueError(f"Conflicting metric registration for attempt {attempt_id}")
+        state.metrics_by_attempt[attempt_id] = metric
+
+    def add_claim(self, claim: Claim) -> None:
+        state = self._write()
+        existing = state.claims.get(claim.claim_id)
+        if existing is not None and existing != claim:
+            raise ValueError(f"Conflicting claim registration: {claim.claim_id}")
+        state.claims[claim.claim_id] = claim
+
+    def add_evidence_link(self, link: EvidenceLink) -> None:
+        state = self._write()
+        links = state.evidence_by_claim.setdefault(link.claim_id, [])
+        if link not in links:
+            links.append(link)
+
     def get_mission(self, mission_id: str) -> Mission | None:
         return self._read().missions.get(mission_id)
 
@@ -102,6 +131,15 @@ class InMemoryUnitOfWork:
 
     def get_artifact_by_operation_id(self, operation_id: str) -> ArtifactRegistration | None:
         return self._read().artifacts_by_operation.get(operation_id)
+
+    def get_metric_by_attempt_id(self, attempt_id: str) -> MetricRecord | None:
+        return self._read().metrics_by_attempt.get(attempt_id)
+
+    def get_claims_for_mission(self, mission_id: str) -> tuple[Claim, ...]:
+        return tuple(claim for claim in self._read().claims.values() if str(claim.mission_id) == mission_id)
+
+    def get_evidence_for_claim(self, claim_id: str) -> tuple[EvidenceLink, ...]:
+        return tuple(self._read().evidence_by_claim.get(claim_id, []))
 
     def commit(self) -> None:
         if self._working is None:
