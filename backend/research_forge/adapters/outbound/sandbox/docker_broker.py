@@ -53,6 +53,9 @@ class DockerSandboxBroker:
         finally:
             self._processes.pop(request.operation_id, None)
         stdout, stderr, truncated = self._truncate_logs(stdout, stderr, request.max_log_bytes)
+        if process.returncode == 125:
+            detail = stderr.decode("utf-8", errors="replace").strip()
+            raise SandboxUnavailable(f"Docker rejected the hardened sandbox invocation: {detail[:1024]}")
         outputs = self._read_outputs(request)
         return SandboxResult(
             operation_id=request.operation_id,
