@@ -155,7 +155,7 @@ The local API defaults to loopback and requires a Bearer token. CORS is restrict
 - Candidate commits are limited by allowed paths, file count, changed lines, one commit, and one run.
 - Archive extraction rejects traversal, absolute paths, links, and unexpected members.
 - The approval record binds scope, task, parent Attempt, decision identity, expiry, and the exact patch hash.
-- Cancel, lease loss, stale epoch, and stale optimistic version are durable state transitions, not UI flags.
+- Cancel, lease loss, stale epoch, and stale optimistic version are durable state transitions, not UI flags; a running cancellation stops the broker operation before the worker acknowledges its queue delivery.
 
 ## Project map
 

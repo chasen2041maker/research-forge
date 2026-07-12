@@ -5,16 +5,22 @@ from __future__ import annotations
 import json
 from hashlib import sha256
 from pathlib import Path
+from types import SimpleNamespace
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
 import pytest
 
 from research_forge.adapters.outbound.sandbox import UnixSandboxBrokerClient
 from research_forge.bootstrap import (
     ProductionConfigurationError,
+    ProductionVs001Runtime,
     ProductionVs001Settings,
     build_production_vs001_runtime,
 )
+from research_forge.domain.errors import CancellationRequested
+from research_forge.domain.mission import MissionId, Task, TaskId, TaskType
 
 
 class _Redis:
@@ -42,6 +48,53 @@ class _Redis:
     @staticmethod
     def ping() -> bool:
         return True
+
+
+class _CancellationQueue:
+    def __init__(self) -> None:
+        self.acknowledged: list[str] = []
+
+    @staticmethod
+    def receive() -> str:
+        return "attempt-cancelled"
+
+    def acknowledge(self, attempt_id: str) -> None:
+        self.acknowledged.append(attempt_id)
+
+
+class _CancellationUnitOfWork:
+    def __enter__(self) -> "_CancellationUnitOfWork":
+        return self
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> bool | None:
+        return None
+
+    @staticmethod
+    def get_attempt(attempt_id: str) -> object:
+        assert attempt_id == "attempt-cancelled"
+        return SimpleNamespace(task_id=TaskId("task-cancelled"))
+
+    @staticmethod
+    def get_task(task_id: str) -> Task:
+        assert task_id == "task-cancelled"
+        return Task(TaskId(task_id), MissionId("mission-cancelled"), TaskType.BASELINE_REPRODUCTION, _now())
+
+    @staticmethod
+    def commit() -> None:
+        return None
+
+
+class _CancellationWorker:
+    @staticmethod
+    def process(*, attempt_id: str, owner: str) -> object:
+        del attempt_id, owner
+        raise CancellationRequested("durably cancelled")
+
+
+def _now() -> object:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc)
 
 
 def _schema() -> dict[str, object]:
@@ -125,3 +178,20 @@ def test_production_settings_loads_only_explicit_environment_and_policy_files(tm
     )
     with pytest.raises(ProductionConfigurationError, match="escapes RF_PAPER_ROOT"):
         ProductionVs001Settings.from_environment(environment)
+
+
+def test_production_runtime_acknowledges_a_durably_cancelled_attempt(tmp_path: Path) -> None:
+    queue = _CancellationQueue()
+    runtime = ProductionVs001Runtime(
+        app=FastAPI(),
+        baseline_worker=_CancellationWorker(),
+        publish_outbox=object(),
+        queue=queue,
+        unit_of_work=_CancellationUnitOfWork(),
+        database_engine=create_engine(f"sqlite+pysqlite:///{tmp_path / 'forge.db'}"),
+        redis_client=object(),
+        sandbox_client=UnixSandboxBrokerClient(socket_path=tmp_path / "broker.sock"),
+    )
+
+    assert runtime.process_one(owner="worker-cancel") is True
+    assert queue.acknowledged == ["attempt-cancelled"]

@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from subprocess import run
+from threading import Event, Thread
 from zipfile import ZipFile
 
 import pytest
@@ -17,6 +18,7 @@ from research_forge.adapters.outbound.persistence import InMemoryUnitOfWork
 from research_forge.adapters.outbound.sandbox import LocalDevelopmentSandbox
 from research_forge.adapters.outbound.bundle import DeterministicZipBundleBuilder
 from research_forge.application.dto import JsonSchemaReproductionSpecValidator
+from research_forge.application.dto.sandbox import SandboxResult, SandboxRunRequest
 from research_forge.application.use_cases import (
     ClaimBaselineAttempt,
     CompleteReproductionMission,
@@ -28,6 +30,7 @@ from research_forge.application.use_cases import (
 )
 from research_forge.domain.evidence import MetricComparator, MetricExpectation, extract_and_validate_metric
 from research_forge.domain.evidence.metric import MetricExtractionError
+from research_forge.domain.errors import CancellationRequested
 from research_forge.domain.mission import AttemptStatus, MissionStatus
 from research_forge.bootstrap import build_local_vs001_runtime
 
@@ -57,6 +60,36 @@ class _AcceptingPrerequisites:
         image_digest: str,
     ) -> None:
         del paper_artifact_id, paper_sha256, repository_url_or_path, commit_sha, image_digest
+
+
+class _BlockingSandbox:
+    def __init__(self) -> None:
+        self.started = Event()
+        self.cancelled = Event()
+
+    def execute(self, request: SandboxRunRequest) -> SandboxResult:
+        self.started.set()
+        if not self.cancelled.wait(timeout=5):
+            raise RuntimeError("Cancellation signal did not reach the sandbox.")
+        return SandboxResult(
+            operation_id=request.operation_id,
+            execution_id=request.operation_id,
+            exit_code=143,
+            stdout=b"",
+            stderr=b"cancelled",
+            output_files={},
+            environment_digest=request.image_digest,
+            dataset_sha256="0" * 64,
+        )
+
+    @staticmethod
+    def get_completed(operation_id: str) -> SandboxResult | None:
+        del operation_id
+        return None
+
+    def cancel(self, operation_id: str) -> None:
+        assert operation_id
+        self.cancelled.set()
 
 
 def _git(*arguments: str, cwd: Path) -> str:
@@ -277,3 +310,39 @@ def test_queue_redelivery_after_db_completion_reuses_the_existing_bundle(tmp_pat
     assert first == second
     assert runtime.queue.acknowledged == [mission.attempt_id]
     assert len(runtime.unit_of_work.bundles) == 1
+
+
+def test_worker_cancellation_stops_the_sandbox_and_registers_no_artifact(tmp_path: Path) -> None:
+    repository, commit_sha = _fixture_repository(tmp_path)
+    schema_path = Path(__file__).resolve().parents[3] / "docs" / "规范" / "科研复现任务规范_v1.schema.json"
+    sandbox = _BlockingSandbox()
+    runtime = build_local_vs001_runtime(
+        schema=json.loads(schema_path.read_text(encoding="utf-8")),
+        workspace_root=tmp_path / "workspaces",
+        artifact_root=tmp_path / "cas",
+        paper_artifacts={"paper-toy-001": "a" * 64},
+        allowed_image_digests={"sha256:" + "b" * 64},
+        sandbox_executor=sandbox,
+    )
+    mission = runtime.create_mission.execute(_spec(repository, commit_sha))
+    failure: list[BaseException] = []
+
+    def process() -> None:
+        try:
+            runtime.worker.process(attempt_id=mission.attempt_id, owner="worker-cancel")
+        except BaseException as exc:  # The worker must surface the durable cancellation to its queue adapter.
+            failure.append(exc)
+
+    thread = Thread(target=process, daemon=True)
+    thread.start()
+    assert sandbox.started.wait(timeout=5)
+    runtime.controller.request_cancel(mission.mission_id)
+    thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    assert len(failure) == 1 and isinstance(failure[0], CancellationRequested)
+    persisted_mission = runtime.unit_of_work.get_mission(mission.mission_id)
+    persisted_attempt = runtime.unit_of_work.get_attempt(mission.attempt_id)
+    assert persisted_mission is not None and persisted_mission.status is MissionStatus.CANCELLED
+    assert persisted_attempt is not None and persisted_attempt.status is AttemptStatus.CANCELLED
+    assert runtime.unit_of_work.artifacts == ()

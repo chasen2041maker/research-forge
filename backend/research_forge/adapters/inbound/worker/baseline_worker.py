@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from threading import Event, Thread
 
 from research_forge.application.use_cases import (
+    BaselineExecutionView,
     BundleView,
+    CancelBaselineAttempt,
     ClaimBaselineAttempt,
     CompleteReproductionMission,
     EnsureBaselineWorkspace,
@@ -13,6 +16,8 @@ from research_forge.application.use_cases import (
     GetBaselineOutcome,
     RunBaselineAttempt,
 )
+from research_forge.application.dto.sandbox import SandboxRunRequest
+from research_forge.domain.errors import CancellationRequested
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +26,7 @@ class BaselineWorkerUseCases:
     claim: ClaimBaselineAttempt
     ensure_workspace: EnsureBaselineWorkspace
     run: RunBaselineAttempt
+    cancel: CancelBaselineAttempt
     finalize: FinalizeBaselineExecution
     complete: CompleteReproductionMission
 
@@ -43,12 +49,11 @@ class BaselineWorker:
             expected_version=lease.version,
             idempotency_key=f"{attempt_id}:baseline-worktree",
         )
-        execution = self._use_cases.run.execute(
+        execution = self._run_with_cancellation_monitor(
             attempt_id=attempt_id,
             owner=owner,
             epoch=lease.epoch,
             expected_version=lease.version,
-            idempotency_key=f"{attempt_id}:sandbox",
             worktree_path=workspace.worktree_path,
         )
         self._use_cases.finalize.execute(
@@ -66,3 +71,68 @@ class BaselineWorker:
             expected_version=lease.version,
             worktree_path=workspace.worktree_path,
         )
+
+    def _run_with_cancellation_monitor(
+        self,
+        *,
+        attempt_id: str,
+        owner: str,
+        epoch: int,
+        expected_version: int,
+        worktree_path: str,
+    ) -> BaselineExecutionView:
+        stop = Event()
+        cancelled = Event()
+        monitor: Thread | None = None
+
+        def start_monitor(request: SandboxRunRequest) -> None:
+            nonlocal monitor
+            monitor = Thread(
+                target=self._watch_for_cancellation,
+                args=(stop, cancelled, attempt_id, owner, epoch, expected_version, request.operation_id),
+                daemon=True,
+            )
+            monitor.start()
+
+        try:
+            return self._use_cases.run.execute(
+                attempt_id=attempt_id,
+                owner=owner,
+                epoch=epoch,
+                expected_version=expected_version,
+                idempotency_key=f"{attempt_id}:sandbox",
+                worktree_path=worktree_path,
+                on_execution_started=start_monitor,
+            )
+        except Exception:
+            if cancelled.is_set():
+                raise CancellationRequested("Sandbox was cancelled before artifact finalization.") from None
+            raise
+        finally:
+            stop.set()
+            if monitor is not None:
+                monitor.join(timeout=1)
+
+    def _watch_for_cancellation(
+        self,
+        stop: Event,
+        cancelled: Event,
+        attempt_id: str,
+        owner: str,
+        epoch: int,
+        expected_version: int,
+        operation_id: str,
+    ) -> None:
+        while not stop.wait(0.05):
+            try:
+                self._use_cases.cancel.execute(
+                    attempt_id=attempt_id,
+                    owner=owner,
+                    epoch=epoch,
+                    expected_version=expected_version,
+                    sandbox_operation_id=operation_id,
+                )
+            except CancellationRequested:
+                continue
+            cancelled.set()
+            return

@@ -31,6 +31,7 @@ from research_forge.adapters.outbound.sandbox import UnixSandboxBrokerClient
 from research_forge.adapters.outbound.system import SystemClock, UuidGenerator
 from research_forge.application.dto import JsonSchemaReproductionSpecValidator
 from research_forge.application.use_cases import (
+    CancelBaselineAttempt,
     ClaimBaselineAttempt,
     CompleteReproductionMission,
     CreateReproductionMission,
@@ -46,6 +47,7 @@ from research_forge.application.use_cases import (
     RunBaselineAttempt,
 )
 from research_forge.domain.mission import TaskType
+from research_forge.domain.errors import CancellationRequested
 
 
 class ProductionConfigurationError(ValueError):
@@ -159,7 +161,11 @@ class ProductionVs001Runtime:
                 "The baseline process role cannot execute a repair Attempt; configure a separately reviewed "
                 "DecisionEngine worker before acknowledging it."
             )
-        self.baseline_worker.process(attempt_id=attempt_id, owner=owner)
+        try:
+            self.baseline_worker.process(attempt_id=attempt_id, owner=owner)
+        except CancellationRequested:
+            self.queue.acknowledge(attempt_id)
+            return True
         self.queue.acknowledge(attempt_id)
         return True
 
@@ -237,6 +243,12 @@ def build_production_vs001_runtime(
                 id_generator=identifiers,
             ),
             run=RunBaselineAttempt(
+                unit_of_work=unit_of_work,
+                sandbox_executor=sandbox_client,
+                clock=clock,
+                id_generator=identifiers,
+            ),
+            cancel=CancelBaselineAttempt(
                 unit_of_work=unit_of_work,
                 sandbox_executor=sandbox_client,
                 clock=clock,

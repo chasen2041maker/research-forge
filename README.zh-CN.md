@@ -149,7 +149,7 @@ DecisionEngine 仅提出一个补丁
 - 候选 commit 受允许路径、文件数、变更行数、一次提交和一次执行的硬限制。
 - Bundle 解压拒绝路径穿越、绝对路径、链接和未声明成员。
 - 审批绑定 scope、Task、父 Attempt、决策身份、到期时间和准确的补丁 hash。
-- 取消、租约丢失、过期 epoch 与过期乐观版本都是持久化状态迁移，而不是 UI 标记。
+- 取消、租约丢失、过期 epoch 与过期乐观版本都是持久化状态迁移，而不是 UI 标记；运行中的取消会先停止 broker 操作，worker 再确认队列消息。
 
 生产环境必须让 API、发布器与 worker 看到同一 Linux 主机文件系统：Mission 持久化的本地仓库路径必须和 Docker bind mount 的真实源路径完全一致。因此 Compose 仅管理 PostgreSQL 与 Redis；不要把 worker 随意放入普通容器中。
 

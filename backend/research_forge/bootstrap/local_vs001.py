@@ -18,7 +18,9 @@ from research_forge.adapters.outbound.queue import ImmediateQueue
 from research_forge.adapters.outbound.sandbox import LocalDevelopmentSandbox
 from research_forge.adapters.outbound.system import SystemClock, UuidGenerator
 from research_forge.application.dto import JsonSchemaReproductionSpecValidator
+from research_forge.application.ports.sandbox import SandboxExecutor
 from research_forge.application.use_cases import (
+    CancelBaselineAttempt,
     ClaimBaselineAttempt,
     CompleteReproductionMission,
     CreateReproductionMission,
@@ -54,6 +56,7 @@ def build_local_vs001_runtime(
     artifact_root: Path,
     paper_artifacts: Mapping[str, str],
     allowed_image_digests: Set[str],
+    sandbox_executor: SandboxExecutor | None = None,
 ) -> LocalVs001Runtime:
     """Compose fake persistence with real local Git/CAS and the development-only process runner."""
     clock = SystemClock()
@@ -62,6 +65,7 @@ def build_local_vs001_runtime(
     queue = ImmediateQueue()
     workspace_manager = GitWorktreeManager(workspace_root)
     artifact_store = LocalContentAddressedStore(artifact_root)
+    executor = sandbox_executor or LocalDevelopmentSandbox(workspace_root)
     artifact_persister = PersistArtifact(
         unit_of_work=unit_of_work,
         artifact_store=artifact_store,
@@ -109,7 +113,13 @@ def build_local_vs001_runtime(
             ),
             run=RunBaselineAttempt(
                 unit_of_work=unit_of_work,
-                sandbox_executor=LocalDevelopmentSandbox(workspace_root),
+                sandbox_executor=executor,
+                clock=clock,
+                id_generator=identifiers,
+            ),
+            cancel=CancelBaselineAttempt(
+                unit_of_work=unit_of_work,
+                sandbox_executor=executor,
                 clock=clock,
                 id_generator=identifiers,
             ),

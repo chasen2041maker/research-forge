@@ -48,6 +48,7 @@ class RunBaselineAttempt:
         idempotency_key: str,
         worktree_path: str,
         after_execution: Callable[[], None] | None = None,
+        on_execution_started: Callable[[SandboxRunRequest], None] | None = None,
     ) -> BaselineExecutionView:
         request, already_succeeded = self._prepare(
             attempt_id=attempt_id,
@@ -62,6 +63,8 @@ class RunBaselineAttempt:
             if result is None:
                 raise OperationConflict("Completed sandbox operation has no broker-recoverable result.")
             return BaselineExecutionView(sandbox_result=result)
+        if on_execution_started is not None:
+            on_execution_started(request)
         result = self._sandbox_executor.execute(request)
         if after_execution is not None:
             after_execution()
