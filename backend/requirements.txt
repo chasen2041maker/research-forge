@@ -34,6 +34,7 @@ qdrant-client>=1.11.0          # Qdrant Python 客户端
 
 # ---- 状态/缓存 ----
 sqlalchemy>=2.0.30             # ORM
+alembic>=1.13.0                # PostgreSQL schema migrations
 psycopg2-binary>=2.9.9         # Postgres 驱动
 redis>=5.0.0                   # 缓存
 diskcache>=5.6.3               # 本地磁盘缓存兜底
