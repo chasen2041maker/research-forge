@@ -40,3 +40,7 @@ class ArtifactIntegrityViolation(DomainViolation):
 
 class PathSafetyViolation(DomainViolation):
     """Raised when a filesystem path escapes a registered workspace or CAS root."""
+
+
+class CancellationRequested(DomainViolation):
+    """Raised before a cancelled Mission can create a new external side effect."""

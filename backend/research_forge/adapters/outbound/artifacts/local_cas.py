@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import os
 import tempfile
+import time
+from datetime import timedelta
 from pathlib import Path
 
 from research_forge.domain.artifact import ArtifactRef
@@ -62,6 +64,24 @@ class LocalContentAddressedStore:
         except ArtifactIntegrityViolation:
             return False
         return True
+
+    def collect_orphans(self, *, referenced_sha256: set[str], minimum_age: timedelta) -> tuple[str, ...]:
+        """Delete only aged, unregistered regular blobs; callers derive references from durable DB state."""
+        normalized_references = {value.lower() for value in referenced_sha256}
+        cutoff = time.time() - minimum_age.total_seconds()
+        removed: list[str] = []
+        for candidate in self._cas_path.iterdir():
+            if candidate.is_symlink() or not candidate.is_file():
+                continue
+            if candidate.name in normalized_references or candidate.stat().st_mtime > cutoff:
+                continue
+            try:
+                self._safe_blob_path(candidate.name)
+            except PathSafetyViolation:
+                continue
+            candidate.unlink()
+            removed.append(candidate.name)
+        return tuple(sorted(removed))
 
     def _safe_blob_path(self, sha256: str) -> Path:
         if len(sha256) != 64 or any(character not in "0123456789abcdef" for character in sha256):

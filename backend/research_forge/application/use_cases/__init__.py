@@ -9,6 +9,7 @@ from research_forge.application.use_cases.claim_baseline_attempt import (
     ClaimBaselineAttempt,
     LeaseView,
 )
+from research_forge.application.use_cases.cancel_baseline_attempt import CancelBaselineAttempt
 from research_forge.application.use_cases.renew_attempt_lease import (
     HeartbeatView,
     RenewAttemptLease,
@@ -39,6 +40,7 @@ __all__ = [
     "BaselineExecutionView",
     "BaselineValidationFailure",
     "BundleView",
+    "CancelBaselineAttempt",
     "ClaimBaselineAttempt",
     "CompleteReproductionMission",
     "CreateReproductionMission",

@@ -11,9 +11,9 @@ from research_forge.application.ports.system import Clock, IdGenerator
 from research_forge.application.ports.unit_of_work import UnitOfWork
 from research_forge.application.use_cases.claim_baseline_attempt import AttemptNotFound
 from research_forge.domain.artifact import ArtifactKind, ArtifactRef, ArtifactRegistration
-from research_forge.domain.errors import OperationConflict
+from research_forge.domain.errors import CancellationRequested, OperationConflict
 from research_forge.domain.execution import Operation, OperationStatus, OperationType
-from research_forge.domain.mission import AttemptId
+from research_forge.domain.mission import AttemptId, MissionStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +95,14 @@ class PersistArtifact:
             attempt = self._unit_of_work.get_attempt(attempt_id)
             if attempt is None:
                 raise AttemptNotFound(attempt_id)
+            task = self._unit_of_work.get_task(str(attempt.task_id))
+            if task is None:
+                raise AttemptNotFound(f"task for attempt {attempt_id}")
+            mission = self._unit_of_work.get_mission(str(task.mission_id))
+            if mission is None:
+                raise AttemptNotFound(f"mission for attempt {attempt_id}")
+            if mission.status is MissionStatus.CANCELLING:
+                raise CancellationRequested("Mission cancellation forbids registering a new artifact.")
             attempt.assert_active_lease(owner=owner, epoch=epoch, expected_version=expected_version, now=now)
             operation = self._unit_of_work.get_operation_by_idempotency_key(idempotency_key)
             if operation is None:
@@ -145,6 +153,14 @@ class PersistArtifact:
             operation = self._unit_of_work.get_operation_by_idempotency_key(idempotency_key)
             if attempt is None or operation is None:
                 raise AttemptNotFound("Attempt or prepared CAS operation was not found.")
+            task = self._unit_of_work.get_task(str(attempt.task_id))
+            if task is None:
+                raise AttemptNotFound(f"task for attempt {attempt_id}")
+            mission = self._unit_of_work.get_mission(str(task.mission_id))
+            if mission is None:
+                raise AttemptNotFound(f"mission for attempt {attempt_id}")
+            if mission.status is MissionStatus.CANCELLING:
+                raise CancellationRequested("Mission cancellation forbids finalizing a new artifact.")
             attempt.assert_active_lease(owner=owner, epoch=epoch, expected_version=expected_version, now=now)
             operation.succeed(external_result_ref=reference.uri, now=now)
             registration = ArtifactRegistration(

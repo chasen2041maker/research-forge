@@ -11,9 +11,25 @@ import pytest
 from research_forge.adapters.outbound.persistence import InMemoryUnitOfWork
 from research_forge.adapters.outbound.sandbox import DeterministicFakeSandbox, DockerSandboxBroker
 from research_forge.application.dto import NetworkPolicy, SandboxResult, SandboxRunRequest
-from research_forge.application.use_cases import ClaimBaselineAttempt, RunBaselineAttempt
+from research_forge.application.use_cases import (
+    CancelBaselineAttempt,
+    ClaimBaselineAttempt,
+    RequestMissionCancellation,
+    RunBaselineAttempt,
+)
 from research_forge.domain.execution import OperationStatus
-from research_forge.domain.mission import Attempt, AttemptId, Mission, MissionId, Task, TaskId, TaskType
+from research_forge.domain.mission import (
+    Attempt,
+    AttemptId,
+    AttemptStatus,
+    Mission,
+    MissionId,
+    MissionStatus,
+    Task,
+    TaskId,
+    TaskStatus,
+    TaskType,
+)
 
 
 def _request(worktree_path: str = "/workspace/mission-1") -> SandboxRunRequest:
@@ -165,3 +181,56 @@ def test_sandbox_completion_before_db_finalize_recovers_one_operation() -> None:
     assert recovered.sandbox_result.execution_id == "execution-1"
     assert calls == 1
     assert uow.get_operation_by_idempotency_key("attempt-1:sandbox").status is OperationStatus.SUCCEEDED
+
+
+def test_cancel_stops_the_sandbox_before_marking_the_mission_cancelled() -> None:
+    clock = _Clock()
+    uow = InMemoryUnitOfWork()
+    mission = Mission.create(
+        mission_id=MissionId("mission-1"),
+        spec_sha256="a" * 64,
+        normalized_spec_json="{}",
+        created_at=clock.now(),
+    )
+    mission.mark_ready()
+    task = Task(TaskId("task-1"), mission.mission_id, TaskType.BASELINE_REPRODUCTION, clock.now())
+    attempt = Attempt(AttemptId("attempt-1"), task.task_id, 1, 0, clock.now())
+    with uow:
+        uow.add_mission(mission)
+        uow.add_task(task)
+        uow.add_attempt(attempt)
+        uow.commit()
+    lease = ClaimBaselineAttempt(unit_of_work=uow, clock=clock, lease_duration=timedelta(seconds=30)).execute(
+        attempt_id="attempt-1", owner="worker-a"
+    )
+    RequestMissionCancellation(unit_of_work=uow, clock=clock, id_generator=_Ids()).execute(mission_id="mission-1")
+    sandbox = DeterministicFakeSandbox(
+        lambda request: SandboxResult(
+            operation_id=request.operation_id,
+            execution_id="unused",
+            exit_code=0,
+            stdout=b"",
+            stderr=b"",
+            output_files={},
+            environment_digest=request.image_digest,
+            dataset_sha256="0" * 64,
+        )
+    )
+
+    CancelBaselineAttempt(
+        unit_of_work=uow,
+        sandbox_executor=sandbox,
+        clock=clock,
+        id_generator=_Ids(),
+    ).execute(
+        attempt_id="attempt-1",
+        owner=lease.owner,
+        epoch=lease.epoch,
+        expected_version=lease.version,
+        sandbox_operation_id="operation-1",
+    )
+
+    assert sandbox.cancelled_operations == {"operation-1"}
+    assert uow.get_mission("mission-1").status is MissionStatus.CANCELLED
+    assert uow.get_task("task-1").status is TaskStatus.CANCELLED
+    assert uow.get_attempt("attempt-1").status is AttemptStatus.CANCELLED

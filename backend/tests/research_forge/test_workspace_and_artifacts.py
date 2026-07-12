@@ -113,6 +113,20 @@ def test_local_cas_deduplicates_and_detects_tampering(tmp_path: Path) -> None:
         cas.read_verified(first)
 
 
+def test_local_cas_garbage_collects_only_unregistered_orphans(tmp_path: Path) -> None:
+    cas = LocalContentAddressedStore(tmp_path / "artifacts")
+    registered = cas.put(b"registered", media_type="text/plain")
+    orphan = cas.put(b"orphan", media_type="text/plain")
+
+    removed = cas.collect_orphans(
+        referenced_sha256={registered.sha256},
+        minimum_age=timedelta(seconds=0),
+    )
+
+    assert removed == (orphan.sha256,)
+    assert cas.verify(registered) is True
+
+
 def test_cas_rename_before_db_finalize_recovers_without_duplicate_registration(tmp_path: Path) -> None:
     clock = _Clock()
     ids = _Ids()

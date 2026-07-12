@@ -10,9 +10,9 @@ from research_forge.application.ports.system import Clock, IdGenerator
 from research_forge.application.ports.unit_of_work import UnitOfWork
 from research_forge.application.ports.workspace import BaselineWorkspace, WorkspaceManager
 from research_forge.application.use_cases.claim_baseline_attempt import AttemptNotFound
-from research_forge.domain.errors import OperationConflict
+from research_forge.domain.errors import CancellationRequested, OperationConflict
 from research_forge.domain.execution import Operation, OperationStatus, OperationType
-from research_forge.domain.mission import AttemptId
+from research_forge.domain.mission import AttemptId, MissionStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +88,8 @@ class EnsureBaselineWorkspace:
             mission = self._unit_of_work.get_mission(str(task.mission_id))
             if mission is None:
                 raise AttemptNotFound(f"mission for attempt {attempt_id}")
+            if mission.status is MissionStatus.CANCELLING:
+                raise CancellationRequested("Mission cancellation forbids creating a baseline worktree.")
             attempt.assert_active_lease(owner=owner, epoch=epoch, expected_version=expected_version, now=now)
             repository = json.loads(mission.normalized_spec_json)["repository"]
             repository_url_or_path = repository["url_or_path"]

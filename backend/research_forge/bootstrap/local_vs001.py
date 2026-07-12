@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Set
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -10,7 +10,7 @@ from pathlib import Path
 from research_forge.adapters.inbound.worker import BaselineWorker, BaselineWorkerUseCases
 from research_forge.adapters.outbound.artifacts import LocalContentAddressedStore
 from research_forge.adapters.outbound.bundle import DeterministicZipBundleBuilder
-from research_forge.adapters.outbound.git import GitWorktreeManager
+from research_forge.adapters.outbound.git import GitWorktreeManager, PinnedLocalPrerequisiteVerifier
 from research_forge.adapters.outbound.persistence import InMemoryUnitOfWork
 from research_forge.adapters.outbound.sandbox import LocalDevelopmentSandbox
 from research_forge.adapters.outbound.system import SystemClock, UuidGenerator
@@ -41,6 +41,8 @@ def build_local_vs001_runtime(
     schema: Mapping[str, object],
     workspace_root: Path,
     artifact_root: Path,
+    paper_artifacts: Mapping[str, str],
+    allowed_image_digests: Set[str],
 ) -> LocalVs001Runtime:
     """Compose fake persistence with real local Git/CAS and the development-only process runner."""
     clock = SystemClock()
@@ -59,6 +61,10 @@ def build_local_vs001_runtime(
         unit_of_work=unit_of_work,
         clock=clock,
         id_generator=identifiers,
+        prerequisite_verifier=PinnedLocalPrerequisiteVerifier(
+            paper_artifacts=paper_artifacts,
+            allowed_image_digests=allowed_image_digests,
+        ),
     )
     worker = BaselineWorker(
         BaselineWorkerUseCases(

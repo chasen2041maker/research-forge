@@ -126,6 +126,33 @@ class _SequenceIds:
         return f"{kind}-{self._next}"
 
 
+class _AcceptingPrerequisites:
+    def verify(
+        self,
+        *,
+        paper_artifact_id: str,
+        paper_sha256: str,
+        repository_url_or_path: str,
+        commit_sha: str,
+        image_digest: str,
+    ) -> None:
+        del paper_artifact_id, paper_sha256, repository_url_or_path, commit_sha, image_digest
+
+
+class _RejectingPrerequisites:
+    def verify(
+        self,
+        *,
+        paper_artifact_id: str,
+        paper_sha256: str,
+        repository_url_or_path: str,
+        commit_sha: str,
+        image_digest: str,
+    ) -> None:
+        del paper_artifact_id, paper_sha256, repository_url_or_path, commit_sha, image_digest
+        raise ValueError("unregistered paper artifact")
+
+
 class _InMemoryUnitOfWork(AbstractContextManager["_InMemoryUnitOfWork"]):
     def __init__(self) -> None:
         self.missions: list[object] = []
@@ -179,6 +206,7 @@ def test_create_mission_writes_state_audit_and_outbox_in_one_unit_of_work(
         unit_of_work=uow,
         clock=_FixedClock(),
         id_generator=_SequenceIds(),
+        prerequisite_verifier=_AcceptingPrerequisites(),
     )
 
     view = use_case.execute(_valid_spec())
@@ -190,3 +218,21 @@ def test_create_mission_writes_state_audit_and_outbox_in_one_unit_of_work(
     assert len(uow.missions) == len(uow.tasks) == len(uow.attempts) == 1
     assert len(uow.audits) == len(uow.outbox) == 1
     assert uow.committed is True
+
+
+def test_mission_creation_stops_before_writing_state_when_prerequisites_fail(
+    validator: JsonSchemaReproductionSpecValidator,
+) -> None:
+    uow = _InMemoryUnitOfWork()
+    use_case = CreateReproductionMission(
+        spec_validator=validator,
+        unit_of_work=uow,
+        clock=_FixedClock(),
+        id_generator=_SequenceIds(),
+        prerequisite_verifier=_RejectingPrerequisites(),
+    )
+
+    with pytest.raises(ValueError, match="unregistered"):
+        use_case.execute(_valid_spec())
+
+    assert not uow.missions and not uow.outbox

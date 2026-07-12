@@ -48,6 +48,19 @@ class _Ids:
         return f"{kind}-{self.counter}"
 
 
+class _AcceptingPrerequisites:
+    def verify(
+        self,
+        *,
+        paper_artifact_id: str,
+        paper_sha256: str,
+        repository_url_or_path: str,
+        commit_sha: str,
+        image_digest: str,
+    ) -> None:
+        del paper_artifact_id, paper_sha256, repository_url_or_path, commit_sha, image_digest
+
+
 def _git(*arguments: str, cwd: Path) -> str:
     return run(["git", *arguments], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
 
@@ -129,7 +142,11 @@ def test_no_llm_baseline_flow_creates_verified_metric_evidence(tmp_path: Path) -
     repository, commit_sha = _fixture_repository(tmp_path)
     uow = InMemoryUnitOfWork()
     mission = CreateReproductionMission(
-        spec_validator=_validator(), unit_of_work=uow, clock=clock, id_generator=ids
+        spec_validator=_validator(),
+        unit_of_work=uow,
+        clock=clock,
+        id_generator=ids,
+        prerequisite_verifier=_AcceptingPrerequisites(),
     ).execute(_spec(repository, commit_sha))
     lease = ClaimBaselineAttempt(unit_of_work=uow, clock=clock, lease_duration=timedelta(seconds=30)).execute(
         attempt_id=mission.attempt_id, owner="worker-a"
@@ -233,6 +250,8 @@ def test_queue_redelivery_after_db_completion_reuses_the_existing_bundle(tmp_pat
         schema=json.loads(schema_path.read_text(encoding="utf-8")),
         workspace_root=tmp_path / "workspaces",
         artifact_root=tmp_path / "cas",
+        paper_artifacts={"paper-toy-001": "a" * 64},
+        allowed_image_digests={"sha256:" + "b" * 64},
     )
     mission = runtime.create_mission.execute(_spec(repository, commit_sha))
     queue = ImmediateQueue()

@@ -11,6 +11,7 @@ from research_forge.application.dto.reproduction_spec import (
 )
 from research_forge.application.ports.system import Clock, IdGenerator
 from research_forge.application.ports.unit_of_work import UnitOfWork
+from research_forge.application.ports.reproduction_prerequisites import ReproductionPrerequisiteVerifier
 from research_forge.domain.mission import (
     Attempt,
     AttemptId,
@@ -43,14 +44,17 @@ class CreateReproductionMission:
         unit_of_work: UnitOfWork,
         clock: Clock,
         id_generator: IdGenerator,
+        prerequisite_verifier: ReproductionPrerequisiteVerifier,
     ) -> None:
         self._spec_validator = spec_validator
         self._unit_of_work = unit_of_work
         self._clock = clock
         self._id_generator = id_generator
+        self._prerequisite_verifier = prerequisite_verifier
 
     def execute(self, raw_spec: Mapping[str, Any]) -> MissionView:
         spec = self._spec_validator.validate(raw_spec)
+        self._verify_prerequisites(spec.payload)
         now = self._clock.now()
 
         mission = Mission.create(
@@ -109,4 +113,16 @@ class CreateReproductionMission:
             attempt_id=str(attempt.attempt_id),
             status=str(mission.status),
             spec_sha256=spec.sha256,
+        )
+
+    def _verify_prerequisites(self, spec: Mapping[str, Any]) -> None:
+        paper = spec["paper"]
+        repository = spec["repository"]
+        execution = spec["execution"]
+        self._prerequisite_verifier.verify(
+            paper_artifact_id=paper["artifact_id"],
+            paper_sha256=paper["sha256"],
+            repository_url_or_path=repository["url_or_path"],
+            commit_sha=repository["commit_sha"],
+            image_digest=execution["image_digest"],
         )
