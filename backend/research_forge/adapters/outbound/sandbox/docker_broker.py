@@ -115,7 +115,10 @@ class DockerSandboxBroker:
                 self._docker(tuple(self.build_command(request)))
             except CalledProcessError as exc:
                 if not self._container_exists(name):
-                    raise SandboxUnavailable("Docker could not launch the sandbox operation container.") from exc
+                    raise SandboxUnavailable(
+                        "Docker could not launch the sandbox operation container: "
+                        f"{_bounded_diagnostic(exc.stderr)}"
+                    ) from exc
                 self._assert_container_matches(name, request_hash)
         else:
             self._assert_container_matches(name, request_hash)
@@ -318,3 +321,12 @@ class _BoundedLogCollector:
 
     def result(self) -> tuple[bytes, bytes, bool]:
         return bytes(self._stdout), bytes(self._stderr), self._truncated
+
+
+def _bounded_diagnostic(payload: bytes | str | None, maximum: int = 512) -> str:
+    """Expose one bounded Docker launch diagnostic without retaining an unbounded daemon response."""
+    if payload is None:
+        return "no diagnostic was returned"
+    text = payload.decode("utf-8", errors="replace") if isinstance(payload, bytes) else payload
+    normalized = " ".join(text.split())
+    return normalized[:maximum] or "no diagnostic was returned"

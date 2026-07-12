@@ -10,6 +10,7 @@ import pytest
 
 from research_forge.adapters.outbound.persistence import InMemoryUnitOfWork
 from research_forge.adapters.outbound.sandbox import DeterministicFakeSandbox, DockerSandboxBroker
+from research_forge.adapters.outbound.sandbox.docker_broker import _bounded_diagnostic
 from research_forge.application.dto import NetworkPolicy, SandboxResult, SandboxRunRequest
 from research_forge.application.use_cases import (
     CancelBaselineAttempt,
@@ -125,6 +126,11 @@ def test_docker_cancel_uses_stable_name_stop_kill_and_remove(tmp_path: Path, mon
 
     name = broker.container_name("operation-1")
     assert commands == [("stop", "--time", "2", name), ("kill", name), ("rm", "-f", name)]
+
+
+def test_docker_launch_diagnostic_is_bounded_and_single_line() -> None:
+    assert _bounded_diagnostic(b" launch\nfailed " + b"x" * 1_000) == "launch failed " + "x" * 498
+    assert _bounded_diagnostic(None) == "no diagnostic was returned"
 
 
 def test_sandbox_completion_before_db_finalize_recovers_one_operation() -> None:
