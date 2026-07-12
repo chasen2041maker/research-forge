@@ -1,0 +1,1365 @@
+# Research Forge 代码分层与架构治理规范
+
+> 文档版本：1.0  
+> 适用范围：Research Forge 新架构代码及 Legacy 迁移代码  
+> 规范级别：必须遵守，例外必须记录 ADR  
+> 核心目标：局部修改、边界稳定、依赖可检查、失败可隔离
+
+---
+
+## 0. 这份规范解决什么问题
+
+本规范直接解决：
+
+> 修改一个模块时，不应该因为共享状态、循环依赖、框架耦合和隐式副作用，迫使整个项目一起修改。
+
+所谓“牵一发而动全身”，通常来自以下原因：
+
+- 所有模块读写同一个巨大 State；
+- API、工作流、数据库和业务逻辑混在同一文件；
+- 业务代码直接 import SQLAlchemy、Docker、Git、Redis、FastAPI；
+- 下游依赖上游的内部字典结构；
+- 一个异常被全局捕获后继续传播坏状态；
+- 同一事实存放在多个数据库、内存和文件中；
+- 模块之间通过隐式全局对象和环境变量通信；
+- 没有稳定 Port，替换实现必须修改调用方；
+- 没有架构测试，错误依赖直到很晚才被发现。
+
+本规范通过六层架构、Ports and Adapters、领域状态机、单一事实来源、类型化 DTO、错误分类和自动架构检查解决这些问题。
+
+---
+
+## 1. 核心原则
+
+### R1. 依赖只能向内
+
+外层可以依赖内层抽象，内层不能依赖外层实现。
+
+```text
+Interfaces ──────┐
+                 ▼
+Runtime ─────→ Application ─────→ Domain
+                 ▲
+Infrastructure ──┘
+
+Bootstrap：只负责把这些层组装起来
+```
+
+### R2. 业务规则不依赖框架
+
+Mission 状态迁移、Claim 验证状态和审批规则不能写在：
+
+- FastAPI Route；
+- SQLAlchemy Model Hook；
+- LangGraph Node；
+- Celery Task；
+- React 组件；
+- Docker Adapter。
+
+它们必须在 Domain/Application 中可独立测试。
+
+### R3. 跨层只通过稳定契约
+
+跨层传递：
+
+- Pydantic DTO；
+- dataclass Value Object；
+- Protocol/ABC Port；
+- 显式 Result/Error。
+
+禁止跨层传递：
+
+- ORM Entity；
+- FastAPI Request；
+- Docker Client；
+- LangGraph 完整 State；
+- 无 Schema 的 `dict[str, Any]`；
+- 可变全局单例。
+
+### R4. 一个事实只有一个可写主人
+
+每类事实只允许一个系统拥有写权限。缓存、索引和 Checkpoint 不是第二事实源。
+
+### R5. 副作用必须推到边界
+
+Domain/Application 不能直接：
+
+- 写文件；
+- 调数据库；
+- 运行 Shell；
+- 调 LLM；
+- 访问网络；
+- 创建 Git Commit；
+- 启动容器。
+
+它们只调用 Port。
+
+### R6. 失败必须局部化
+
+每个边界把底层异常转换为项目错误类型。禁止把 SDK 异常穿透所有层，也禁止 Catch-All 后继续执行。
+
+### R7. 模块通过能力合作，不共享内部状态
+
+Evidence 模块不能直接修改 Mission 表；Workspace 模块不能直接修改 Claim；Writer 不能读取所有业务表。
+
+### R8. 可替换不等于到处抽象
+
+只有以下情况建立 Port：
+
+- 有真实外部副作用；
+- 已知存在至少两个实现；
+- 测试需要 Fake；
+- 实现很可能因环境变化而替换。
+
+纯内部函数不为了“未来可能”创建多层工厂。
+
+---
+
+## 2. 六层职责
+
+## 2.1 Domain
+
+路径：
+
+```text
+research_forge/domain/
+```
+
+负责：
+
+- Entity；
+- Aggregate；
+- Value Object；
+- Domain Service；
+- 状态机和不变量；
+- Domain Error；
+- Domain Event 数据结构。
+
+允许依赖：
+
+- Python 标准库；
+- `typing`；
+- `dataclasses`；
+- 经批准的纯类型/验证库。
+
+禁止依赖：
+
+- FastAPI；
+- SQLAlchemy；
+- LangGraph/LangChain；
+- Celery/Redis；
+- Docker；
+- Git SDK；
+- HTTP Client；
+- OpenAI/Anthropic SDK；
+- 项目中的 Infrastructure、Runtime、Interfaces。
+
+示例：
+
+```python
+class Mission:
+    def start(self) -> None:
+        if self.status is not MissionStatus.READY:
+            raise InvalidMissionTransition(self.status, MissionStatus.RUNNING)
+        self.status = MissionStatus.RUNNING
+        self.version += 1
+```
+
+Domain 只判断是否可以 Start，不负责写数据库或发送队列消息。
+
+## 2.2 Application
+
+路径：
+
+```text
+research_forge/application/
+├── use_cases/
+├── ports/
+├── dto/
+├── policies/
+└── services/
+```
+
+负责：
+
+- 用例编排；
+- 事务边界；
+- 调用 Domain；
+- 调用 Port；
+- DTO 转换；
+- 授权和业务 Policy；
+- 幂等和条件更新；
+- 输出 Application Result。
+
+允许依赖：
+
+- Domain；
+- Application 内部模块。
+
+禁止依赖：
+
+- SQLAlchemy Session；
+- FastAPI Response；
+- Celery Task；
+- Docker Client；
+- 具体 Git/LLM/MCP 实现；
+- React/API Schema。
+
+示例：
+
+```python
+class ApproveOperation:
+    def __init__(self, uow: UnitOfWork, clock: Clock) -> None:
+        self._uow = uow
+        self._clock = clock
+
+    def execute(self, command: ApproveOperationCommand) -> ApprovalView:
+        with self._uow:
+            operation = self._uow.operations.get(command.operation_id)
+            operation.approve(command.actor_id, self._clock.now())
+            self._uow.audit.append(operation.approved_event())
+            self._uow.commit()
+        return ApprovalView.from_domain(operation)
+```
+
+## 2.3 Runtime
+
+路径：
+
+```text
+research_forge/runtime/
+├── agents/
+├── workflows/
+├── skills/
+├── context/
+└── prompts/
+```
+
+负责：
+
+- Agent 决策循环；
+- LangGraph Attempt Graph；
+- Handoff；
+- Skill 加载；
+- Prompt 构建；
+- Context 压缩；
+- 将模型输出转换为 Application Command/Proposal。
+
+允许依赖：
+
+- Domain 类型；
+- Application DTO；
+- Application Ports；
+- Agent/LangGraph 框架。
+
+禁止依赖：
+
+- ORM Model；
+- 数据库 Session；
+- Docker SDK；
+- Git CLI 封装；
+- FastAPI；
+- Celery Task；
+- 具体 Artifact 文件路径规则；
+- Secret 明文。
+
+关键规则：
+
+> Runtime 只能提出动作，Application/Policy 决定动作是否允许，Infrastructure 执行动作。
+
+LangGraph Node 返回类型化 Node Result，不返回任意字段 Patch。
+
+```python
+class PlanNodeResult(BaseModel):
+    proposals: list[ActionProposal]
+    summary: str
+    requires_review: bool
+```
+
+## 2.4 Infrastructure
+
+路径：
+
+```text
+research_forge/infrastructure/
+├── persistence/
+├── queue/
+├── git/
+├── artifacts/
+├── sandbox/
+├── capabilities/
+├── llm/
+├── security/
+└── telemetry/
+```
+
+负责：
+
+- 实现 Application Ports；
+- SQLAlchemy/PostgreSQL；
+- Redis/Celery；
+- Git/worktree；
+- Artifact CAS；
+- Sandbox Broker Client；
+- MCP/HTTP/论文检索 Adapter；
+- LLM Provider；
+- Trace/Metric；
+- Secret Broker。
+
+允许依赖：
+
+- Domain；
+- Application Ports/DTO；
+- 第三方 SDK。
+
+禁止：
+
+- 在 Adapter 内决定业务状态迁移；
+- 绕过 Use Case 直接修改其他模块表；
+- 把第三方 SDK 对象返回给 Application；
+- 隐式吞掉异常；
+- 用全局 Session/Client 传播可变状态。
+
+每个 Adapter 必须把 SDK 异常转换为项目错误：
+
+```python
+try:
+    ...
+except httpx.TimeoutException as exc:
+    raise RetryableFailure("paper source timed out") from exc
+```
+
+## 2.5 Interfaces
+
+路径：
+
+```text
+research_forge/interfaces/
+├── api/
+├── cli/
+├── worker/
+└── events/
+```
+
+负责：
+
+- HTTP/CLI/Worker 输入解析；
+- 认证和协议级授权；
+- 调用 Application Use Case；
+- 将 Application Result 转换为外部响应；
+- 协议错误码；
+- SSE/WebSocket 序列化。
+
+禁止：
+
+- Route 直接查询 ORM；
+- Route 直接创建 Git、Docker、LLM Client；
+- Route 修改 Domain Entity；
+- Celery Task 自己实现业务逻辑；
+- 把内部异常堆栈直接返回用户；
+- 把 `_runs` 进程内字典当状态库。
+
+Route 应保持薄：
+
+```python
+@router.post("/missions")
+def create_mission(request: CreateMissionRequest, uc: CreateMissionDep) -> MissionResponse:
+    result = uc.execute(request.to_command())
+    return MissionResponse.from_view(result)
+```
+
+## 2.6 Bootstrap
+
+路径：
+
+```text
+research_forge/bootstrap/
+├── container.py
+├── settings.py
+├── api.py
+└── worker.py
+```
+
+负责：
+
+- 创建配置；
+- 创建数据库、Queue、LLM、Git、Artifact Adapter；
+- 注入 Use Case；
+- 组装 FastAPI；
+- 组装 Worker；
+- 生命周期管理。
+
+Bootstrap 是唯一允许同时依赖 Application、Runtime、Infrastructure 和 Interfaces 的层。
+
+业务模块禁止自己读取 `.env` 并创建依赖。
+
+---
+
+## 3. 模块边界
+
+### 3.1 按业务能力分模块
+
+Domain/Application 内部优先按业务能力划分：
+
+```text
+mission/
+execution/
+workspace/
+artifact/
+evidence/
+approval/
+evaluation/
+```
+
+不要按技术名建立巨型公共目录：
+
+```text
+helpers/
+utils/
+common/
+models/
+services/
+```
+
+这些目录容易成为无边界垃圾场。
+
+### 3.2 模块公开 API
+
+每个模块通过 `__init__.py` 或明确的 `api.py` 暴露公开类型。
+
+其他模块禁止 import 内部文件：
+
+```python
+# 允许
+from research_forge.domain.mission import MissionId, MissionStatus
+
+# 禁止
+from research_forge.domain.mission._state_machine import _TRANSITIONS
+```
+
+### 3.3 跨模块写入
+
+一个模块不能直接写另一个模块拥有的数据表。
+
+例如：
+
+- Evidence 不能直接把 Mission 改为 Completed；
+- Workspace 不能直接创建 Approval；
+- Writer 不能直接更新 Claim；
+- Artifact Adapter 不能直接修改 Attempt。
+
+正确方式：返回结果，由 Application Use Case 在事务中协调。
+
+### 3.4 模块通信
+
+优先顺序：
+
+1. 同进程直接调用 Application API；
+2. Domain/Application Event；
+3. Transactional Outbox；
+4. 异步消息。
+
+不要为了“解耦”把所有内部调用都变成消息队列。
+
+---
+
+## 4. 依赖矩阵
+
+| From \ To | Domain | Application | Runtime | Infrastructure | Interfaces | Bootstrap |
+|---|---:|---:|---:|---:|---:|---:|
+| Domain | 允许 | 禁止 | 禁止 | 禁止 | 禁止 | 禁止 |
+| Application | 允许 | 允许 | 禁止 | 禁止 | 禁止 | 禁止 |
+| Runtime | 允许 | 允许 | 允许 | 禁止 | 禁止 | 禁止 |
+| Infrastructure | 允许 | 仅 Ports/DTO | 禁止 | 允许 | 禁止 | 禁止 |
+| Interfaces | 仅公开类型 | 允许 | 禁止 | 禁止 | 允许 | 禁止 |
+| Bootstrap | 允许 | 允许 | 允许 | 允许 | 允许 | 允许 |
+
+特殊说明：
+
+- Infrastructure 不得 import Application Use Case，只实现 Port；
+- Interfaces 不直接 import Infrastructure；
+- Runtime 不直接 import Infrastructure；
+- Bootstrap 不包含业务分支。
+
+---
+
+## 5. Ports and Adapters
+
+### 5.1 Port 命名
+
+Port 按业务能力命名，而不是按供应商命名：
+
+```text
+MissionRepository
+UnitOfWork
+TaskQueue
+WorkspaceManager
+ArtifactStore
+SandboxExecutor
+ResearchSource
+ModelGateway
+Clock
+IdGenerator
+AuditSink
+```
+
+禁止：
+
+```text
+PostgresService
+DockerService
+OpenAIService
+RedisHelper
+GitHubManager
+```
+
+供应商名属于 Adapter。
+
+### 5.2 Port 粒度
+
+Port 应聚焦一个稳定能力：
+
+```python
+class ArtifactStore(Protocol):
+    def put(self, content: BinaryIO, metadata: ArtifactMetadata) -> ArtifactRef: ...
+    def open(self, artifact_id: ArtifactId) -> BinaryIO: ...
+    def verify(self, artifact_id: ArtifactId) -> VerificationResult: ...
+```
+
+禁止 `InfrastructureService.do_everything()`。
+
+### 5.3 Adapter 输出
+
+Adapter 必须输出项目类型，不输出供应商类型：
+
+```python
+# 允许
+ArtifactRef
+SandboxRunResult
+GitCommitRef
+
+# 禁止
+docker.models.containers.Container
+sqlalchemy.engine.Row
+httpx.Response
+openai.types.Response
+```
+
+### 5.4 Fake Adapter
+
+每个关键 Port 至少提供：
+
+- Production Adapter；
+- In-memory/Fake Adapter；
+- Contract Test。
+
+Fake 必须遵守与真实 Adapter 相同的不变量，不能因为测试方便改变语义。
+
+---
+
+## 6. DTO、Entity 与 Schema
+
+### 6.1 四类数据对象
+
+| 类型 | 用途 | 可变性 |
+|---|---|---|
+| Domain Entity | 业务身份与规则 | 受方法控制 |
+| Value Object | ID、Hash、Money、Status | 不可变 |
+| Command/Query DTO | Use Case 输入 | 不可变 |
+| View/Result DTO | Use Case 输出 | 不可变 |
+
+API Request/Response 只属于 Interfaces，不能直接当 Domain Entity。
+
+### 6.2 禁止巨大 State
+
+任何单一状态对象不得承载整个 Mission 的所有论文、代码、日志、实验、记忆和报告。
+
+规则：
+
+- Mission 只保存身份、目标、约束和状态；
+- 大对象保存为 ArtifactRef；
+- 任务上下文按 Task Brief 构建；
+- Agent 只获得完成当前任务所需的最小 Context；
+- LangGraph State 只属于一个 Attempt。
+
+### 6.3 Schema 版本
+
+所有长期保存或跨进程对象必须有 `schema_version`：
+
+- Mission Manifest；
+- Artifact Manifest；
+- Skill Manifest；
+- Event Payload；
+- Research Bundle；
+- Worker Message。
+
+不兼容变更必须提供迁移器或创建新版本。
+
+---
+
+## 7. 单一事实来源规则
+
+### 7.1 PostgreSQL
+
+拥有：
+
+- Mission/Task/Attempt 当前状态；
+- Approval；
+- External Operation；
+- Claim/Evidence 状态；
+- Artifact Manifest 索引；
+- Audit/Outbox。
+
+禁止：
+
+- 在 API 内存重复维护可写 Run Status；
+- 在 Redis/Celery Result Backend 维护业务真相；
+- 在 LangGraph State 中保存最终业务状态副本。
+
+### 7.2 Git
+
+拥有：
+
+- 代码内容；
+- Diff；
+- Branch/Worktree；
+- Commit 历史。
+
+DB 只能保存引用和索引。
+
+### 7.3 Artifact Store
+
+拥有：
+
+- 日志；
+- 指标；
+- 环境清单；
+- 数据清单；
+- 补丁；
+- Bundle 文件。
+
+DB 不保存大文件正文。
+
+### 7.4 LangGraph Checkpoint
+
+拥有：
+
+- 单次 Attempt 的 Agent 消息和临时推理上下文；
+- 可恢复 Node 游标。
+
+它不拥有 Mission/Task 当前状态。
+
+### 7.5 Audit Event
+
+Audit Event 与状态变更同事务写入，只用于：
+
+- 审计；
+- UI Timeline；
+- 故障分析；
+- 指标统计。
+
+v0.1 不通过 Event 重建全部业务状态。
+
+---
+
+## 8. 事务与一致性
+
+### 8.1 Unit of Work
+
+一个 Use Case 对应一个明确事务边界。
+
+```python
+with uow:
+    mission = uow.missions.get(command.mission_id)
+    mission.start()
+    uow.audit.append(...)
+    uow.outbox.append(...)
+    uow.commit()
+```
+
+### 8.2 乐观锁
+
+Mission、Task、Attempt 使用 `version`。
+
+状态更新必须类似：
+
+```sql
+UPDATE missions
+SET status = :new_status, version = version + 1
+WHERE id = :id AND version = :expected_version;
+```
+
+影响行数不是 1 就视为并发冲突。
+
+### 8.3 Transactional Outbox
+
+状态和待发布事件同事务写入。独立 Publisher 读取 Outbox 并投递 Redis/SSE。
+
+禁止：
+
+```text
+先 commit DB
+再 publish message
+```
+
+否则进程可能在两步之间崩溃。
+
+### 8.4 幂等
+
+以下动作必须有幂等键：
+
+- Queue Task；
+- Sandbox Run；
+- Artifact Put；
+- Git Commit；
+- Draft PR；
+- 外部通知。
+
+幂等键由 Application 生成，不由 Adapter 随机生成。
+
+---
+
+## 9. 错误规范
+
+### 9.1 错误层次
+
+```text
+ResearchForgeError
+├── DomainViolation
+├── ValidationFailure
+├── RetryableFailure
+├── TerminalFailure
+├── PolicyBlocked
+├── CancelledFailure
+├── SecurityViolation
+└── ConcurrencyConflict
+```
+
+### 9.2 Catch 规则
+
+- Domain 只抛 Domain Error；
+- Infrastructure 在 Adapter 边界转换 SDK Error；
+- Application 决定重试、阻断或失败；
+- Interfaces 转换为 HTTP/CLI 状态；
+- 最外层可以 Catch-All 记录“系统错误”，但必须终止当前操作；
+- 禁止 Catch-All 后返回空字典继续工作流。
+
+### 9.3 降级
+
+降级必须是显式类型：
+
+```python
+class DegradedResult(BaseModel):
+    reason: str
+    missing_capability: str
+    safe_to_continue: bool
+```
+
+只有业务规则明确允许的缺失能力才能继续。
+
+### 9.4 错误信息
+
+错误记录必须包含：
+
+- Error Code；
+- Mission/Task/Attempt ID；
+- 是否可重试；
+- 发生层；
+- 脱敏原因摘要；
+- 原异常只进入受保护日志。
+
+禁止在响应、Trace 和 Artifact 中泄露 Secret 或完整 SDK Payload。
+
+---
+
+## 10. Workflow 与 Agent 规则
+
+### 10.1 Workflow 是确定性骨架
+
+Workflow 决定：
+
+- 状态；
+- 哪些步骤允许出现；
+- 重试次数；
+- 审批；
+- 停止条件；
+- 验收。
+
+Agent 只能在允许范围内选择：
+
+- 计划内容；
+- 候选动作；
+- 修复建议；
+- 需要调用的只读能力。
+
+### 10.2 Node 规则
+
+每个 Node：
+
+- 单一职责；
+- 输入/输出 Schema 明确；
+- 无隐式全局状态；
+- 不直接访问 Infrastructure；
+- 不直接改变 Mission 状态；
+- 不捕获所有异常；
+- 可独立单元测试。
+
+### 10.3 Handoff
+
+只传结构化 Task Brief：
+
+```yaml
+task_id:
+objective:
+input_artifact_refs:
+allowed_tools:
+budget:
+acceptance_criteria:
+known_constraints:
+required_output_schema:
+```
+
+禁止复制整个对话和完整 Mission State 给子 Agent。
+
+### 10.4 Prompt
+
+- Prompt 是 Runtime 资源，不是业务规则唯一实现；
+- 所有关键约束必须有代码检查；
+- Prompt 有版本和 Hash；
+- Prompt 修改必须运行冻结 Eval；
+- 不把工具 Secret、内部路径和不必要 Schema 放进 Prompt。
+
+---
+
+## 11. Skill 规则
+
+### 11.1 Skill 不等于函数
+
+Skill 是版本化方法包。普通 Helper Function 不自动成为 Skill。
+
+### 11.2 v0.1 Skill
+
+- 静态；
+- Git 管理；
+- 人工 PR；
+- 明确版本；
+- 明确风险；
+- 有正反例 Eval；
+- 不保存 Secret；
+- 不直接执行副作用。
+
+### 11.3 Skill 权限
+
+Skill Manifest 只能声明“所需权限”，不能授予权限。实际授权由 Policy Engine 决定。
+
+### 11.4 Skill 修改
+
+```text
+candidate branch
+→ regression eval
+→ security eval
+→ holdout
+→ cost comparison
+→ human review
+→ version release
+→ rollback pointer
+```
+
+禁止 `INSERT OR REPLACE` 覆盖稳定 Skill。
+
+---
+
+## 12. MCP 与 Capability Adapter 规则
+
+### 12.1 MCP 不是内部架构中心
+
+MCP 只是连接协议。内部 Application Port 不应暴露 MCP 概念。
+
+```text
+Application Port: ResearchSource
+Infrastructure Adapter: McpResearchSource
+```
+
+替换 MCP 为 HTTP API 时 Application 不修改。
+
+### 12.2 Adapter 必须控制
+
+- Server allowlist；
+- Tool namespace；
+- Schema Hash；
+- Deadline；
+- Payload Limit；
+- 输出类型；
+- Prompt Injection 标记；
+- Audit；
+- Policy；
+- 进程生命周期。
+
+### 12.3 外部写入
+
+v0.1 的 MCP 只读。GitHub Draft PR 使用内部 Side-effect Tool，并经过 Approval/Idempotency。
+
+---
+
+## 13. 配置规则
+
+### 13.1 配置读取
+
+只有 Bootstrap 读取环境变量和配置文件。
+
+业务模块接收类型化 Settings/Policy，不自行 `os.getenv()`。
+
+### 13.2 默认值
+
+- 默认无网络；
+- 默认只监听 Loopback；
+- 默认需要本地 Token；
+- 默认不允许外部写入；
+- 默认不执行未知 Skill/MCP；
+- 默认不使用第三方 Relay；
+- 默认生成模式不能宣称实验成功。
+
+### 13.3 Secret
+
+配置对象只保存 Secret Reference；实际 Secret 由 Infrastructure Secret Broker 在调用边界短时获取。
+
+---
+
+## 14. 文件和代码规模规则
+
+这些是审查阈值，不是机械绝对限制：
+
+- 单文件超过 400 行必须说明原因或拆分；
+- 单函数超过 60 行必须审查职责；
+- 构造函数依赖超过 7 个通常说明职责过多；
+- 一个 Use Case 只处理一个用户目标；
+- 一个 Adapter 只实现一个 Port 或紧密相关 Port；
+- `utils.py` 不得持续增长；
+- `Any`、裸 `dict` 和 `# type: ignore` 必须局部且有原因；
+- 公共函数必须有类型；
+- 跨层 DTO 必须有明确 Schema。
+
+如果拆分只会产生无意义代理文件，可以保留并记录说明。
+
+---
+
+## 15. 测试分层
+
+### 15.1 Domain Tests
+
+- 纯内存；
+- 不使用数据库、网络、LLM；
+- 覆盖状态机和不变量；
+- 快速运行。
+
+### 15.2 Application Tests
+
+- 使用 Fake Ports；
+- 验证 Use Case、事务、幂等和错误决策；
+- 不依赖真实第三方服务。
+
+### 15.3 Adapter Contract Tests
+
+同一套契约测试运行在：
+
+- Fake Adapter；
+- Production Adapter 的本地测试实例。
+
+保证 Fake 不偏离真实语义。
+
+### 15.4 Integration Tests
+
+- PostgreSQL；
+- Redis/Worker；
+- Git/worktree；
+- Local CAS；
+- Sandbox Broker。
+
+### 15.5 Architecture Tests
+
+CI 必须自动验证：
+
+- Domain 无框架 import；
+- Application 无 Infrastructure import；
+- Runtime 无 Infrastructure import；
+- Interfaces 无 ORM/Adapter import；
+- 没有循环依赖；
+- 禁止模块内部路径被跨模块 import；
+- 事实来源写入只出现在所属 Adapter/Repository。
+
+可以使用 `import-linter`、`pytestarch` 或自定义 AST 检查。
+
+示例规则：
+
+```ini
+[importlinter:contract:domain]
+name = Domain is independent
+type = forbidden
+source_modules = research_forge.domain
+forbidden_modules =
+    research_forge.application
+    research_forge.runtime
+    research_forge.infrastructure
+    research_forge.interfaces
+```
+
+### 15.6 Scenario/Eval Tests
+
+测试真实结果：恢复、Git 隔离、Artifact Hash、Evidence Gate、安全和成本。
+
+测试数量不是核心指标，端到端确定性行为才是。
+
+---
+
+## 16. API 与 Worker 规范
+
+### 16.1 API
+
+- Route 只调用一个 Use Case；
+- 输入输出版本化；
+- 错误码稳定；
+- 列表分页；
+- Artifact 下载校验权限；
+- 不在请求线程运行长任务；
+- 不保存业务状态缓存。
+
+### 16.2 Worker Message
+
+消息只传 ID 和必要元数据：
+
+```json
+{
+  "schema_version": 1,
+  "attempt_id": "...",
+  "operation": "run_attempt",
+  "idempotency_key": "..."
+}
+```
+
+禁止把完整 Mission、论文、日志或 LLM 上下文塞进队列。
+
+### 16.3 Worker
+
+- 领取前检查状态；
+- 领取后写 Lease；
+- Heartbeat；
+- 条件更新；
+- 幂等副作用；
+- 最外层异常终止 Attempt；
+- 结束时释放资源；
+- 不信任队列消息中的权限信息，重新从 DB/Policy 查询。
+
+---
+
+## 17. Observability 规范
+
+统一上下文字段：
+
+```text
+request_id
+mission_id
+task_id
+attempt_id
+operation_id
+agent_run_id
+trace_id
+```
+
+日志要求：
+
+- 结构化 JSON；
+- Secret 脱敏；
+- 不记录完整 Prompt/Tool Payload，除非明确开启安全调试；
+- 状态变化记录旧值、新值和版本；
+- 外部操作记录幂等键；
+- Artifact 记录 Hash；
+- 失败记录项目 Error Code。
+
+Trace 是观察工具，不是业务状态库。
+
+---
+
+## 18. 数据库规则
+
+- ORM Model 只存在于 Infrastructure；
+- Domain Entity 与 ORM Model 分离；
+- Repository 负责映射；
+- Alembic 管理迁移；
+- 禁止运行时自动建表；
+- 外键和唯一约束表达核心不变量；
+- 时间使用 UTC；
+- 金额使用 Decimal/最小货币单位；
+- Hash/ID 使用 Value Object；
+- JSONB 只保存扩展 Payload，不替代核心列；
+- 大文件不入 DB；
+- 敏感列明确加密/脱敏策略。
+
+---
+
+## 19. 前端分层
+
+```text
+frontend/src/
+├── app/                  # routes/layout
+├── features/             # mission, approval, workspace, bundle
+├── entities/             # typed views
+├── shared/               # ui/api/lib
+└── widgets/              # composed panels
+```
+
+规则：
+
+- 页面不直接拼接 API URL；
+- API Client 集中并生成/共享类型；
+- Server State 使用 Query 层，不重复复制到多个 Store；
+- 业务状态以服务器为准；
+- UI 状态与业务状态分离；
+- 组件不理解数据库或 LangGraph 字段；
+- WebSocket/SSE Event 转换为前端 View Model；
+- 一个 Feature 不能直接修改另一个 Feature 的内部 Store。
+
+---
+
+## 20. Legacy 迁移规则
+
+### 20.1 Legacy 隔离
+
+现有 `co_scientist` 标记为 Legacy：
+
+- 允许修复 Bug；
+- 不继续扩展固定 DAG；
+- 新核心能力进入 `research_forge`；
+- Legacy 调用通过 Adapter；
+- 新层禁止 import Legacy 内部模块。
+
+### 20.2 迁移一个能力的步骤
+
+1. 定义新 Port/DTO；
+2. 为 Legacy 行为写契约测试；
+3. 实现 Legacy Adapter；
+4. 新 Use Case 只调用 Port；
+5. 实现新 Adapter；
+6. 两实现跑同一契约测试；
+7. 切换 Bootstrap 绑定；
+8. 观察回归；
+9. 删除 Legacy Adapter；
+10. 更新 ADR 和文档。
+
+### 20.3 禁止大爆炸重构
+
+单个 PR 禁止同时：
+
+- 移动全部目录；
+- 修改全部数据模型；
+- 替换数据库；
+- 替换工作流；
+- 重写 API；
+- 重写前端。
+
+每个 PR 必须保持可运行和可回滚。
+
+---
+
+## 21. 变更影响控制
+
+### 21.1 修改前分类
+
+| 变更类型 | 影响范围 |
+|---|---|
+| Domain Rule | Domain + 相关 Use Case/Test |
+| Port Contract | Application + 所有 Adapter + Contract Test |
+| Adapter Implementation | 单个 Infrastructure 模块 |
+| API Schema | Interface + Client + Compatibility Test |
+| DB Schema | Migration + Repository + Data Test |
+| Workflow | Runtime + Scenario Eval |
+| Prompt/Skill | Runtime + Frozen Eval |
+
+### 21.2 影响清单
+
+每个中大型 PR 描述必须包含：
+
+```markdown
+## Architecture impact
+- Affected layer:
+- Changed public contracts:
+- Source-of-truth impact:
+- Migration required:
+- Backward compatibility:
+- Security impact:
+- Eval impact:
+- Rollback plan:
+```
+
+### 21.3 契约优先
+
+修改实现前先判断是否需要修改公共契约。
+
+- 不需要：只改 Adapter，调用方不动；
+- 需要兼容扩展：新增字段并提供默认；
+- 不兼容：新版本 DTO/Port，并提供迁移期 Adapter；
+- 禁止一次提交同时改契约和所有调用方而没有兼容期，除非尚未发布且有完整测试。
+
+---
+
+## 22. Architecture Decision Record
+
+以下变化必须写 ADR：
+
+- 新增运行进程/服务；
+- 新增数据库或事实来源；
+- 修改依赖方向；
+- 新增跨模块写入；
+- 修改 Mission 状态机；
+- 引入新的外部副作用；
+- 新增高风险 Tool/MCP；
+- 采用新的 Queue/Sandbox/Artifact Backend；
+- 违反本规范的例外。
+
+ADR 模板：
+
+```markdown
+# ADR-XXXX: Title
+
+## Status
+Proposed / Accepted / Superseded / Rejected
+
+## Context
+
+## Decision
+
+## Alternatives
+
+## Consequences
+
+## Migration
+
+## Validation
+
+## Rollback
+```
+
+---
+
+## 23. CI 架构门禁
+
+每个 PR 必须通过：
+
+1. Format/Lint；
+2. Type Check；
+3. Unit Tests；
+4. Import/Architecture Tests；
+5. Adapter Contract Tests；
+6. DB Migration Check；
+7. Secret Scan；
+8. Dependency/License Scan；
+9. Security Regression 子集；
+10. 文档与 Schema 同步检查。
+
+核心分支额外运行：
+
+- Git/worktree Integration；
+- Worker Kill/Resume；
+- Artifact Tamper；
+- Evidence Gate；
+- Sandbox Policy。
+
+---
+
+## 24. 禁止清单
+
+以下做法禁止进入新架构：
+
+- `safe_node` 捕获所有异常后继续；
+- FastAPI `BackgroundTasks` 承担持久长任务；
+- 进程内 `_runs` 作为业务状态；
+- Route 直接操作 ORM；
+- LangGraph Node 直接操作数据库/Git/Docker；
+- Domain import Infrastructure；
+- 跨层传递完整 `ResearchState`；
+- 无 Schema 的任意字典作为公共接口；
+- Redis/Celery Result Backend 作为事实库；
+- SQLite Thread ID 冒充 Git Branch；
+- LLM 文本生成指标；
+- Writer 读取未验证 Claim；
+- 自动覆盖稳定 Skill/Prompt；
+- Skill/MCP 自己授予权限；
+- 第三方 SDK 对象穿透到 Application；
+- 业务模块自行读取 `.env`；
+- 默认使用第三方 Relay；
+- 未审批外部写入；
+- 未绑定 Hash 的 Artifact；
+- 大爆炸式重构。
+
+---
+
+## 25. Code Review Checklist
+
+### 分层
+
+- [ ] 文件放在正确层；
+- [ ] 依赖方向正确；
+- [ ] 没有跨层 SDK 对象；
+- [ ] Bootstrap 之外没有组装具体实现；
+- [ ] 没有新增循环依赖。
+
+### 边界
+
+- [ ] 公共接口使用 Typed DTO/Port；
+- [ ] 没有读取其他模块内部实现；
+- [ ] 没有跨模块直接写表；
+- [ ] 修改契约时提供兼容/迁移计划。
+
+### 状态与一致性
+
+- [ ] 事实来源明确；
+- [ ] 状态迁移在 Domain；
+- [ ] 事务边界清晰；
+- [ ] 审计与 Outbox 同事务；
+- [ ] 副作用有幂等键；
+- [ ] 并发更新有版本检查。
+
+### 错误
+
+- [ ] SDK Error 已转换；
+- [ ] Retryable/Terminal/Blocked 明确；
+- [ ] 没有 Catch-All 后继续；
+- [ ] 错误信息已脱敏。
+
+### 安全
+
+- [ ] 权限由 Policy 决定；
+- [ ] 外部输入视为不可信；
+- [ ] 路径规范化；
+- [ ] Secret 不进入 Prompt/Trace；
+- [ ] 外部写入有审批。
+
+### 测试
+
+- [ ] Domain/Application 单元测试；
+- [ ] Adapter Contract Test；
+- [ ] 架构测试；
+- [ ] 关键变更有 Scenario/Eval；
+- [ ] Fake 与真实实现语义一致。
+
+---
+
+## 26. Definition of Architecture Compliance
+
+一个版本只有满足以下条件，才能称为遵守分层架构：
+
+1. Architecture Test 自动证明依赖方向；
+2. Mission 状态只有 PostgreSQL 一个可写来源；
+3. 代码只有 Git 一个事实来源；
+4. Metric 只有不可变 Artifact 一个事实来源；
+5. LangGraph Checkpoint 不被当成业务状态；
+6. API/Runtime 不直接访问 Infrastructure 实现；
+7. 所有外部副作用经过 Application Policy；
+8. 关键 Port 有 Fake、Production Adapter 和契约测试；
+9. 错误不会跨层无类型传播，也不会被吞掉；
+10. 任意单个 Adapter 可以在不修改 Domain/Application 的情况下替换；
+11. 任意单个 UI 页面变化不要求修改数据库模型；
+12. 任意单个 Prompt/Skill 变化不要求修改业务状态机；
+13. 所有例外有 ADR、测试和回滚方案。
+
+达到这些条件，才真正实现“修改一个地方，不会牵一发而动全身”。
+

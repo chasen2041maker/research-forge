@@ -1,345 +1,373 @@
-# Research Forge 2.0 — GPT 架构送审包
+# Research Forge v0.1 — GPT 第二轮架构送审包
 
-> 用途：将本文件与主设计文档一起提交给 GPT，进行独立、严格的架构审查。  
-> 主设计文档：`docs/architecture/AGENT_CAPABILITY_PLATFORM_BLUEPRINT.md`  
-> 审查目标：发现范围失控、伪创新、不可实现、安全漏洞和评测缺失，而不是获得泛泛表扬。
-
----
-
-## 1. 提交说明
-
-请把以下两个文件一同发送给 GPT：
-
-1. `AGENT_CAPABILITY_PLATFORM_BLUEPRINT.md`
-2. `GPT_ARCHITECTURE_REVIEW_PACKAGE.md`
-
-如果 GPT 可以读取 GitHub，再附上：
-
-- 仓库：https://github.com/chasen2041maker/research-forge
-- 当前主编排：`backend/co_scientist/graph.py`
-- 当前状态模型：`backend/co_scientist/state/research_state.py`
-- 当前多分支：`backend/co_scientist/modules/m8_replay/multi_branch.py`
-- 当前代码执行：`backend/co_scientist/modules/m6_code/code_gen.py`
-- 当前 API：`backend/co_scientist/api/main.py`
+> 用途：对首轮审查后的收缩方案和代码分层规范进行第二轮严格审查。
+>
+> 主设计：`docs/architecture/AGENT_CAPABILITY_PLATFORM_BLUEPRINT.md`
+>
+> 分层规范：`docs/architecture/CODE_ARCHITECTURE_RULES.md`
+>
+> 仓库：https://github.com/chasen2041maker/research-forge
 
 ---
 
-## 2. 项目背景
+## 1. 首轮审查结论
 
-Research Forge 当前是一个 AI Co-Scientist 项目，已有能力包括：
+首轮 GPT-5.6 Thinking 审查给出：
 
-- LangGraph 科研流水线；
-- 候选课题、问题精炼、多源文献检索；
-- 文献访问状态与知识图谱；
-- 多 Reviewer 评审；
-- 实验设计；
-- Docker 代码沙箱；
-- 论文草稿生成；
-- SQLite/LangGraph 多分支和回放；
-- FastAPI、WebSocket、Next.js；
-- 成本控制、记忆、Prompt A/B、Skill Library；
-- 150 个通过、9 个跳过的测试。
+> **CONDITIONAL GO。完整 Agent OS 蓝图 NO-GO；收缩后的证据门控科研复现 Agent GO。**
 
-当前主要问题：
+首轮指出的核心问题：
 
-- 主工作流是固定 DAG；
-- ResearchGate 没有真正形成条件回路；
-- 多分支仍为串行执行；
-- Fork 不是实际 Git branch/worktree；
-- 状态集中在巨大 TypedDict；
-- 测试偏结构正确性，缺少真实科研和任务质量评测；
-- Skills 和 MCP 尚未形成统一平台；
-- 缺少长期任务、审批、事件溯源和系统化安全层。
+1. 一个项目同时承担 Agent OS、科研、Coding、Browser、Skill/MCP/Memory 生态，范围失控；
+2. 与 DeerFlow、Agent Zero、DeepScientist、Letta、OpenHands、RD-Agent 同质化；
+3. LangGraph Checkpoint、Fork DB、内存 `_runs`、文件 Artifact、Memory/Skill DB 构成多个事实来源；
+4. `BackgroundTasks`、Catch-All `safe_node`、静默降级不具备持久长任务语义；
+5. Docker、API、路径、Secret、MCP/Skill 供应链安全不足；
+6. 当前 Skill 是函数库，不是版本化方法包；
+7. MCP Gateway 对 MVP 过度设计；
+8. Git-like Branch 不是真实 Git/worktree；
+9. Evidence 主要靠 Prompt，没有 Writer 代码级门禁；
+10. 测试数量不能证明恢复、安全、复现和证据真实性。
 
-新设计希望将项目升级为：
-
-> 一个以科研工程为旗舰场景，统一整合 Agent Runtime、Skills、MCP、Memory、Git Workspace、Sandbox、Browser、Human Approval、Observability 和 Evaluation 的大型 Agent 工程展示项目。
+本次修订已接受这些核心意见。
 
 ---
 
-## 3. 希望 GPT 扮演的角色
+## 2. 本轮修订内容
 
-你是一位同时具备以下经验的首席架构审查者：
+### 2.1 产品收缩
 
-- 大规模 Agent Runtime 与长任务编排；
-- LangGraph/工作流系统；
-- Agent Skills 与 MCP；
-- 分布式任务、事件溯源和可观测性；
-- Git-native Coding Agent；
-- 浏览器和代码沙箱安全；
-- LLM Eval、Agent Benchmark 和科研复现；
-- 开源项目产品化与个人作品集评审。
+从：
 
-请保持独立和批判性。不要因为文档内容丰富就默认设计正确，也不要只给通用最佳实践。
+> 通用 Agent OS + Research/Coding/Browser 三场景
 
----
+收缩为：
 
-## 4. 强制审查原则
+> 论文 + 仓库 + 有限目标 → 基线复现 → 一次修复/消融 → Verified Claims → Reproducible Research Bundle。
 
-1. 区分“架构图上存在”和“一个人能够实现”。
-2. 区分“Agent 能说自己完成”和“系统有证据证明完成”。
-3. 区分 Skill、Tool、MCP、Agent、Workflow、Memory 的职责。
-4. 对任何“自主学习/自我进化”要求给出评测与回滚条件。
-5. 对外部写入、Shell、Browser、MCP、Secret 提出具体威胁模型。
-6. 检查是否重复制造已有框架已有的能力。
-7. 检查技术栈是否过度设计。
-8. 检查数据模型和状态一致性。
-9. 检查任务失败、进程崩溃、模型超时和工具不可用时的行为。
-10. 检查 README 可宣传内容是否能被测试、Trace 或 Artifact 证明。
+### 2.2 架构收缩
 
----
+- 模块化单体 + 独立 Worker + Sandbox Broker；
+- PostgreSQL 是业务状态真相；
+- Git 是代码真相；
+- Content-addressed Artifact Store 是日志/指标/交付物真相；
+- LangGraph Checkpoint 只保存单次 Attempt 上下文；
+- Audit Event 只做审计，不采用完整 Event Sourcing；
+- Redis/Celery 只运输任务，不保存业务状态。
 
-## 5. 必须回答的审查问题
+### 2.3 能力收缩
 
-### A. 产品定位
+- 一个 Supervisor；
+- 一个可选 Reviewer；
+- 一个确定性 Evaluator；
+- 3–5 个静态、人工审核 Skill；
+- 库内只读 Capability Adapter，不建设 MCP Gateway 服务；
+- 一个 Baseline Worktree 和一个 Candidate Worktree；
+- Browser、Plugin Hub、通用 Coding 场景全部 Later。
 
-1. “Agent OS + 科研旗舰场景”的定位是否仍然过宽？
-2. Research Forge 与 DeerFlow、Agent Zero、DeepScientist、Letta、OpenHands、RD-Agent 的差异是否足够明确？
-3. 哪一个能力最适合作为真正核心壁垒？
-4. 哪些能力只能作为基础设施，不能作为卖点？
-5. 对个人开发者而言，两个旗舰 Demo 是否仍然太多？
+### 2.4 新增代码防耦合规范
 
-### B. 架构边界
-
-1. Control Plane、Capability Plane、Execution Plane、Knowledge Plane、Quality Plane 是否职责清晰？
-2. LangGraph + FastAPI + Redis/Celery + PostgreSQL 是否合理？
-3. 哪些职责不应该放进 LangGraph？
-4. 是否真的需要 Event Store，还是普通审计表已经足够？
-5. 当前架构中是否存在两个事实来源互相冲突？
-
-### C. Skill 系统
-
-1. `SKILL.md + skill.yaml + scripts/references/evals` 是否过度设计？
-2. 如何与现有 Agent Skills 规范保持最大兼容？
-3. Skill Router 应该使用规则、Embedding、LLM，还是混合方案？
-4. 如何评测 Skill 选择正确，而不是只评测最终答案？
-5. Skill 的依赖、权限、版本和锁文件是否有必要全部在 MVP 实现？
-6. 自动 Skill 改进怎样避免奖励黑客和能力退化？
-
-### D. MCP Gateway
-
-1. 自建 MCP Gateway 是否重复制造现有 MCP Client/Registry 能力？
-2. MVP 的 Gateway 最小职责是什么？
-3. 如何处理 Tool 名冲突、Schema 变化和 Server 断线？
-4. 如何防范恶意 MCP 输出和 Prompt Injection？
-5. 授权应按用户、Mission、Agent、Skill 还是 Tool 管理？
-6. 哪些审批能够持久化，哪些必须每次询问？
-
-### E. 多 Agent 与长任务
-
-1. Supervisor + 按需子 Agent 是否优于固定 Reviewer 团队？
-2. Handoff 应传递哪些最小结构化信息？
-3. 子 Agent 失败或返回低质量结果时由谁判断？
-4. 如何避免 Supervisor 成为新的巨大上下文瓶颈？
-5. Mission/Task 状态机是否覆盖暂停、恢复、重试、取消、审批和补偿？
-6. 是否需要 Saga/Compensation 机制处理部分外部写入成功？
-
-### F. Git Workspace 与执行
-
-1. 一个 Mission 一个仓库是否合理？
-2. branch/worktree 与数据库 Branch Record 如何保持一致？
-3. 并行实验如何避免依赖、端口、GPU 和数据冲突？
-4. Sandbox 的最小安全边界是什么？
-5. Browser Worker 和 Code Worker 是否应该完全隔离？
-6. GitHub 写入和 PR 创建应在哪个 Approval Gate 后发生？
-
-### G. Memory 与 Evidence
-
-1. 五层记忆是否过多？MVP 最少保留哪几层？
-2. 记忆写入、合并、过期、删除和来源如何管理？
-3. Claim–Evidence Graph 使用关系表是否足够，是否需要 Neo4j？
-4. 如何防止错误证据进入长期语义记忆？
-5. Writer 只消费验证 Claim 的约束如何在代码层强制？
-6. 如何处理证据之间的矛盾和时效性？
-
-### H. Evaluation
-
-1. 当前五层 Eval 是否可执行？
-2. 最小回归集应包含哪些任务？
-3. 如何在低预算下使用 PaperBench/MLE-Bench 思想而不是完整跑 benchmark？
-4. 哪些指标最能证明项目能力？
-5. 如何报告失败，避免只展示挑选过的成功案例？
-6. 如何比较单 Agent、多 Agent、单分支、多分支的真实收益？
-
-### I. 开发计划
-
-1. 路线图的时间估计是否现实？
-2. 哪些 Phase 应合并、删除或调整顺序？
-3. MVP 中必须砍掉哪些功能？
-4. 第一个月最合理的可演示成果是什么？
-5. 如何在重构期间保持现有 150 个测试和功能可用？
-
----
-
-## 6. 要求的输出格式
-
-请严格按照以下格式输出：
-
-### 1. Executive Verdict
-
-- 用 200 字以内给出是否值得做、最大优势和最大风险。
-- 给出 `GO / CONDITIONAL GO / NO-GO`。
-
-### 2. Scorecard
-
-按 10 分制评分并解释：
-
-| 维度 | 分数 | 主要理由 |
-|---|---:|---|
-| 产品聚焦 | | |
-| 技术差异化 | | |
-| 架构合理性 | | |
-| 一人可实现性 | | |
-| 安全性 | | |
-| 可评测性 | | |
-| 开源吸引力 | | |
-| 面试展示价值 | | |
-
-### 3. Top 10 Critical Findings
-
-每条包含：
-
-- 严重级别：Blocker / High / Medium / Low；
-- 问题；
-- 为什么；
-- 具体修改建议；
-- 如果不改会发生什么。
-
-### 4. Architecture Corrections
-
-- 给出修正后的最小架构；
-- 指明应该保留、替换、删除的组件；
-- 给出新的 Mermaid 图；
-- 明确状态、代码、Artifact 和 Event 的事实来源。
-
-### 5. MVP Cut List
-
-分成：
-
-- Must Have；
-- Should Have；
-- Later；
-- Delete。
-
-### 6. Revised 8-Week Roadmap
-
-每周给出：
-
-- 目标；
-- 具体交付物；
-- 验收测试；
-- 最大风险。
-
-### 7. Evaluation Plan
-
-- 给出 10–20 个低成本但高区分度的任务；
-- 给出确定性评分方法；
-- 给出模型/成本/种子报告模板；
-- 给出防止 Cherry-picking 的方法。
-
-### 8. Threat Model
-
-至少覆盖：
-
-- Prompt Injection；
-- 恶意 Skill；
-- 恶意 MCP；
-- Secret 泄露；
-- 宿主逃逸；
-- 外部写入；
-- 供应链；
-- 记忆污染；
-- 成本失控。
-
-### 9. Differentiation Statement
-
-请最终给出一个不超过 30 个英文单词的定位，以及一个中文版本。
-
-### 10. Final Recommendation
-
-- 是否应该按当前方案开发；
-- 开工前必须修改的 3–5 件事；
-- 最值得首先实现的垂直 Demo。
-
----
-
-## 7. 可直接复制给 GPT 的送审提示词
+新文档定义六层：
 
 ```text
-我要你对一个大型开源 Agent 工程项目进行严格架构审查。
+Domain
+Application
+Runtime
+Infrastructure
+Interfaces
+Bootstrap
+```
 
-项目仓库：
+关键约束：
+
+- 依赖只能向内；
+- Domain/Application 不依赖框架实现；
+- LangGraph Node 不直接访问数据库、Git、Docker、FastAPI、Redis；
+- FastAPI Route 不直接访问 ORM；
+- Infrastructure 通过 Application Port 接入；
+- Bootstrap 是唯一组装具体实现的位置；
+- 跨层只传 DTO/Port，不传完整 ResearchState；
+- Architecture Tests 在 CI 自动检查依赖边界。
+
+---
+
+## 3. 本轮审查目标
+
+第二轮不要重复证明“原 Agent OS 范围过大”。请重点判断：
+
+1. 修订后的单场景是否足够聚焦；
+2. 模块化单体是否仍然过度设计；
+3. 六层代码结构是否真正降低耦合，还是制造样板代码；
+4. 唯一事实来源和事务模型是否自洽；
+5. 长任务、幂等、审批、取消和恢复是否可实现；
+6. Writer/Evidence 门禁能否在代码层强制；
+7. 安全底线是否适合本地单用户 MVP；
+8. 8 周路线图是否现实；
+9. Legacy 渐进迁移是否会形成长期双架构；
+10. 哪些规则应当自动检查，哪些只应 Code Review。
+
+---
+
+## 4. 强制审查问题
+
+## A. 产品与 MVP
+
+1. `Paper + Repository + Limited Objective` 是否是足够明确的输入契约？
+2. “一次修复或一次消融”是否仍有歧义？应如何进一步限制？
+3. Research Bundle 的最小文件是否过多或缺失？
+4. v0.1 是否还保留了不必要的 Skills/MCP/Reviewer？
+5. 最小 Demo 能否在普通 CPU/低成本条件稳定运行？
+
+## B. 六层架构
+
+1. Domain、Application、Runtime、Infrastructure、Interfaces、Bootstrap 的边界是否正确？
+2. Runtime 单独成层是否必要，还是应归入 Application/Infrastructure？
+3. `Infrastructure implements Application Ports` 是否符合依赖倒置？
+4. Interfaces 是否允许依赖 Domain 公开类型，还是只能依赖 Application DTO？
+5. Bootstrap 是否会成为新的 Service Locator/上帝模块？
+6. 是否存在双向依赖风险？
+7. 哪些目录可以合并以减少样板代码？
+
+## C. 防止牵一发而动全身
+
+1. 哪些公共契约最容易发生级联修改？
+2. DTO、Port、Domain Entity、ORM Entity 的分离是否足够？
+3. 模块公开 API 和内部 API 规则是否能自动检查？
+4. 如何避免 `shared/common/utils` 重新成为耦合中心？
+5. 单文件/单函数阈值是否合理？
+6. 修改数据库 Schema、Prompt、Skill、Workflow 时，影响范围规则是否完整？
+7. 如何量化架构耦合是否在下降？
+
+## D. 状态与一致性
+
+1. PostgreSQL 当前状态 + Audit + Outbox 是否足够？
+2. LangGraph Checkpoint 与 Attempt 的生命周期应如何绑定和清理？
+3. Worker Lease/Heartbeat/乐观锁是否存在竞态？
+4. Artifact 写成功但 DB 提交失败时如何回收？
+5. Git Commit 成功但 Attempt 更新失败时如何幂等恢复？
+6. Draft PR 等外部操作是否需要 Compensation？
+7. 哪些状态必须在同一事务？
+
+## E. Workflow 与 Agent
+
+1. Workflow/Agent 职责划分是否足够确定？
+2. LangGraph 只管理 Attempt 是否合理？
+3. Agent Action Proposal 应使用什么 Schema？
+4. 哪些动作必须是确定性 Workflow 决定，不能交给 Agent？
+5. 可选 Reviewer 是否应从 v0.1 完全删除？
+6. Task Brief 是否足够支持 Handoff？
+
+## F. Skill 与 MCP
+
+1. v0.1 是否真的需要 3–5 个 Skill，还是普通代码/Prompt 即可？
+2. Skill 最小 Manifest 应有哪些字段？
+3. Skill Script 作为 Tool 执行是否合理？
+4. 库内 CapabilityAdapter 是否重复包装现有 MCP Client？
+5. Schema Hash、Payload Limit、Policy Hook 哪些属于 Must Have？
+6. 只读 MCP 是否仍存在 Prompt Injection 和数据外泄风险？
+
+## G. Git、Artifact 与 Evidence
+
+1. Baseline/Candidate 两个 Worktree 是否是正确的最小模型？
+2. Git、Artifact、DB 三者如何处理部分成功？
+3. Local CAS 最小实现是什么？
+4. Metric Artifact Schema 应包含哪些字段？
+5. Exact-span Evidence 如何处理 PDF 版本和文本抽取差异？
+6. VerifiedClaimView 是否足以阻止 Writer 绕过？
+7. Writer 是否应完全独立进程/模块？
+
+## H. 安全
+
+1. 本地单用户 Token、Loopback 和严格 CORS 是否足够？
+2. Sandbox Broker 是否必须是独立进程？
+3. Docker Socket 隔离在 Windows/Docker Desktop 环境如何实现？
+4. seccomp/AppArmor/gVisor 哪些是 v0.1 必须，哪些仅 Linux 可选？
+5. 默认无网络与依赖安装如何协调？
+6. Secret Broker 在本地 MVP 是否过度设计？
+7. 安全集能否在 CI 中稳定执行？
+
+## I. 测试和架构治理
+
+1. `import-linter/pytestarch/AST` 应选择哪个？
+2. 哪些依赖规则必须作为 CI Blocker？
+3. Fake Adapter 如何避免与生产语义漂移？
+4. Adapter Contract Test 的最小模板是什么？
+5. 16 个冻结任务是否适合 8 周 MVP？
+6. 如何避免架构规范变成无人维护的文档？
+7. 哪些规则应该删除或降低为建议？
+
+## J. 迁移和路线图
+
+1. Strangler Pattern 是否适合当前小型代码库？
+2. 新旧包并存多久合理？
+3. 第一条 Vertical Slice 应穿过哪些层？
+4. Week 1–8 的顺序是否正确？
+5. 哪周最容易延期？
+6. 一名全职开发者实际需要多久？
+7. 开工前还缺哪些 ADR？
+
+---
+
+## 5. 要求输出格式
+
+请严格按照以下格式回答。
+
+### 1. Second-round Verdict
+
+- `GO / CONDITIONAL GO / NO-GO`；
+- 200 字以内说明；
+- 与首轮相比，风险是上升还是下降。
+
+### 2. Updated Scorecard
+
+| 维度 | 首轮 | 本轮 | 变化原因 |
+|---|---:|---:|---|
+| 产品聚焦 | 3 | | |
+| 技术差异化 | 4 | | |
+| 架构合理性 | 5 | | |
+| 一人可实现性 | 2 | | |
+| 安全性 | 3 | | |
+| 可评测性 | 4 | | |
+| 开源吸引力 | 4 | | |
+| 面试展示价值 | 8 | | |
+
+### 3. Accepted Fixes
+
+列出本次修订真正解决的首轮问题，禁止泛泛表扬。
+
+### 4. Remaining Blockers
+
+按 Blocker/High/Medium 输出：
+
+- 问题；
+- 影响；
+- 具体修改；
+- 验收条件。
+
+### 5. Layering Review
+
+- 逐层审查六层职责；
+- 给出应该合并/拆分的层；
+- 给出修正后的依赖图；
+- 列出至少 10 条可自动执行的 Import/Architecture Rules；
+- 指出最可能重新产生耦合的三个位置。
+
+### 6. Source-of-truth and Failure Review
+
+- 给出事实来源表修正；
+- 分析 DB/Git/Artifact/Checkpoint 部分成功；
+- 给出幂等和恢复算法；
+- 给出必须保持的事务边界。
+
+### 7. Security Minimum
+
+分为：
+
+- v0.1 Blocker；
+- v0.1 Should Have；
+- Linux-only Hardening；
+- Later。
+
+### 8. Revised Vertical Slice
+
+给出第一条端到端 Vertical Slice：
+
+- 涉及文件/模块；
+- 输入输出；
+- 状态迁移；
+- Port/Adapter；
+- 测试；
+- Demo。
+
+### 9. Revised Roadmap
+
+- 提供现实的 8–12 周计划；
+- 每阶段有退出条件；
+- 明确哪些工作可以推迟；
+- 提供止损条件。
+
+### 10. Final Pre-coding Checklist
+
+列出正式重构前必须完成的 5–10 项事项。
+
+---
+
+## 6. 可直接复制给 GPT 的提示词
+
+```text
+这是 Research Forge 的第二轮架构送审。
+
+仓库：
 https://github.com/chasen2041maker/research-forge
 
-我会提供两份文档：
-1. Research Forge 2.0 主设计蓝图
-2. GPT 架构送审包
+首轮你给出的结论是 CONDITIONAL GO：完整 Agent OS NO-GO，只有收缩为“证据门控的科研复现 Agent”才 GO。
 
-请先完整阅读两份文档。如果能够访问 GitHub，请同时审查仓库当前代码，尤其是：
-- backend/co_scientist/graph.py
-- backend/co_scientist/state/research_state.py
-- backend/co_scientist/modules/m8_replay/multi_branch.py
-- backend/co_scientist/modules/m6_code/code_gen.py
-- backend/co_scientist/api/main.py
+我已经根据首轮意见重写了两份核心文档：
+1. docs/architecture/AGENT_CAPABILITY_PLATFORM_BLUEPRINT.md
+2. docs/architecture/CODE_ARCHITECTURE_RULES.md
 
-不要泛泛总结，不要因为功能多就表扬，也不要默认架构图中的能力已经实现。
+同时提供第二轮送审要求：
+3. docs/review/GPT_ARCHITECTURE_REVIEW_PACKAGE.md
 
-你需要扮演首席 Agent 平台架构师、安全审查者、开源维护者和评测负责人，重点寻找：
-- 范围是否失控；
-- 是否与 DeerFlow、Agent Zero、DeepScientist、Letta、OpenHands、RD-Agent 同质化；
-- Skill、Tool、MCP、Agent、Workflow、Memory 的边界是否错误；
-- 是否重复制造已有基础设施；
-- 长任务、并行、恢复、审批和补偿是否成立；
-- Git、数据库、事件和 Artifact 的事实来源是否冲突；
-- MCP、Skill、浏览器和代码执行是否存在安全漏洞；
-- 所谓自主学习是否有 Eval、回滚和防奖励黑客机制；
-- 一名开发者是否能在合理时间实现；
-- 项目能否通过公开、可重复的结果展示 Agent 工程能力。
+请完整阅读三份文档，并在能够访问 GitHub 时交叉检查当前代码。不要重复花大量篇幅批评已经删除的“通用 Agent OS”范围，而要重点验证修订方案是否真的可实现。
 
-请严格按照送审包“要求的输出格式”回答，并给出：
-1. GO / CONDITIONAL GO / NO-GO；
-2. 分项评分；
-3. Top 10 严重问题；
-4. 修正后的最小架构和 Mermaid 图；
-5. Must/Should/Later/Delete；
-6. 修订后的 8 周路线图；
-7. 低成本 Eval 方案；
-8. 威胁模型；
-9. 最终差异化定位；
-10. 开工前必须修改的事项。
+重点审查：
+- 六层代码结构是否能降低耦合，还是产生过度抽象；
+- 依赖方向和 Ports/Adapters 是否正确；
+- PostgreSQL、Git、Artifact、LangGraph Checkpoint 的事实边界是否自洽；
+- Worker Lease、Heartbeat、幂等、Cancel、Resume 和 Approval 是否有竞态；
+- DB/Git/Artifact 部分成功怎样恢复；
+- Writer 只读取 VerifiedClaimView 是否能在代码层强制；
+- Skill/MCP 是否仍超出 MVP；
+- Sandbox Broker、安全门禁和本地开发环境是否现实；
+- Legacy 渐进迁移是否会形成长期双架构；
+- 8 周计划和 16 个 Eval 是否现实；
+- 哪些架构规则应由 CI 自动执行。
 
-如果信息不足，请明确列出假设，但仍然给出最有用的判断。不要只向我提问。
+请严格按照第二轮送审包的“要求输出格式”回答：
+1. Second-round Verdict；
+2. Updated Scorecard；
+3. Accepted Fixes；
+4. Remaining Blockers；
+5. Layering Review；
+6. Source-of-truth and Failure Review；
+7. Security Minimum；
+8. Revised Vertical Slice；
+9. Revised Roadmap；
+10. Final Pre-coding Checklist。
+
+不要只总结文档，不要因为规则详细就默认规则可执行。请指出具体矛盾、过度设计、缺少的状态、接口、事务和测试。
 ```
 
 ---
 
-## 8. 审查结果回传模板
+## 7. 第二轮结果回传
 
-GPT 审查完成后，请把回复保存为：
+请把 GPT 完整回复保存为：
 
 ```text
-docs/review/GPT_ARCHITECTURE_REVIEW_RESULT.md
+docs/review/GPT_ARCHITECTURE_REVIEW_RESULT_V2.md
 ```
 
-并在文件顶部补充：
+文件头：
 
 ```markdown
-# GPT Architecture Review Result
+# GPT Architecture Review Result V2
 
 - Review date:
 - Reviewer model:
 - Model version/date:
-- Web/GitHub access: yes/no
+- GitHub access:
+- Tests executed:
 - Files reviewed:
-- Important assumptions:
+- Assumptions:
 ```
 
-回传后下一步不是立即全部开发，而是：
+回传后执行：
 
-1. 对每个 Blocker 判断接受或拒绝；
-2. 记录 Architecture Decision Record；
-3. 修订主设计文档；
-4. 冻结 MVP 边界；
-5. 再建立 GitHub Issues/Milestones；
-6. 从第一个可验证 Vertical Slice 开始开发。
-
+1. 对 Remaining Blocker 逐条裁决；
+2. 冻结 v0.1 Scope；
+3. 生成事实来源 ADR；
+4. 生成第一条 Vertical Slice ADR；
+5. 建立架构测试；
+6. 再开始代码迁移。
