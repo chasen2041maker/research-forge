@@ -1,4 +1,4 @@
-# Legacy Research Studio boundary
+# Research Studio public boundary
 
 `backend/co_scientist` remains the exploration product. It may run its existing LangGraph
 pipeline, literature discovery, critique, planning, and code-suggestion modules, but every
@@ -14,4 +14,4 @@ Forbidden dependencies for consumers, including the product bridge:
 - `co_scientist.modules.*`
 
 Do not add handoff fields to `ResearchState`. Translate its existing snapshot at the public
-boundary instead, keeping the legacy graph independent from Forge execution and evidence logic.
+boundary instead, keeping the Studio graph independent from Forge execution and evidence logic.

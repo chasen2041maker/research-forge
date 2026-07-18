@@ -38,6 +38,7 @@ from __future__ import annotations
 
 from contextvars import ContextVar
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Callable
 
 from co_scientist.config import settings
@@ -52,6 +53,12 @@ from co_scientist.modules.m5_5_research_gate import research_gate_node
 from co_scientist.modules.m5_experiment import design_experiment_node
 from co_scientist.modules.m6_code import code_executor_node, code_generator_node
 from co_scientist.modules.m7_writer import write_paper_node
+from co_scientist.observability import (
+    AgentEventCallback,
+    emit_agent_event,
+    reset_agent_event_context,
+    set_agent_event_context,
+)
 from co_scientist.state import ResearchState, make_initial_state
 from co_scientist.utils import logger
 
@@ -120,14 +127,51 @@ def safe_node(name: str, fn: Callable) -> Callable:
     """
 
     def wrapped(state: ResearchState) -> dict:
+        started = perf_counter()
         _emit_progress(name, "running")
+        emit_agent_event(
+            "node.started",
+            step_id=name,
+            agent_name=NODE_LABELS.get(name, name),
+            agent_role="workflow_node",
+            input_summary="state accepted by graph node",
+            outcome="RUNNING",
+        )
         try:
             patch = fn(state) or {}
-            _emit_progress(name, "done", output_keys=list(patch.keys()))
+            degraded = bool(patch.get("error_log"))
+            outcome = "DEGRADED" if degraded else "SUCCEEDED"
+            _emit_progress(
+                name,
+                "degraded" if degraded else "done",
+                output_keys=list(patch.keys()),
+                outcome=outcome,
+            )
+            emit_agent_event(
+                "node.degraded" if degraded else "node.completed",
+                step_id=name,
+                agent_name=NODE_LABELS.get(name, name),
+                agent_role="workflow_node",
+                output_summary=f"output keys: {', '.join(patch.keys()) or '(none)'}",
+                duration_ms=round((perf_counter() - started) * 1000),
+                outcome=outcome,
+                fallback=degraded,
+            )
             return patch
         except Exception as e:
             logger.exception("[{}] 节点执行失败", name)
-            _emit_progress(name, "error", error=f"{type(e).__name__}: {e}")
+            error = f"{type(e).__name__}: {e}"
+            _emit_progress(name, "degraded", error=error, outcome="DEGRADED")
+            emit_agent_event(
+                "node.degraded",
+                step_id=name,
+                agent_name=NODE_LABELS.get(name, name),
+                agent_role="workflow_node",
+                output_summary=error,
+                duration_ms=round((perf_counter() - started) * 1000),
+                fallback=True,
+                outcome="DEGRADED",
+            )
             return {"error_log": [f"[{name}] {type(e).__name__}: {e}"]}
 
     wrapped.__name__ = fn.__name__
@@ -461,6 +505,7 @@ def run_pipeline(
     config: dict | None = None,
     budget_usd: float | None = None,
     progress_callback: ProgressCallback | None = None,
+    agent_event_callback: AgentEventCallback | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> ResearchState:
     """
@@ -505,9 +550,11 @@ def run_pipeline(
 
     # 所有 LLM 调用在 budget_guard 上下文里累加,超限抛 BudgetExceeded
     token = _progress_callback.set(progress_callback)
+    event_tokens = set_agent_event_context(fork_id, agent_event_callback)
     try:
         with budget_guard(effective_budget):
             final_state = graph.invoke(initial, config=cfg)
     finally:
         _progress_callback.reset(token)
+        reset_agent_event_context(event_tokens)
     return final_state  # type: ignore[return-value]

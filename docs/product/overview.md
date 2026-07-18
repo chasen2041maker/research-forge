@@ -9,7 +9,7 @@ status: active
 
 Research Forge combines two systems without blurring their truth claims:
 
-- **Research Studio** explores. Its legacy multi-agent pipeline can suggest papers, gaps,
+- **Research Studio** explores. Its multi-agent engineering workbench can suggest papers, gaps,
   hypotheses, experiment plans, and code, but every exported result is `UNVERIFIED`.
 - **Forge Runtime** verifies. It accepts a frozen `ReproductionSpec v1`, checks the pinned
   prerequisites, runs the normal execution/evidence workflow, and exposes a result as verified
@@ -19,7 +19,7 @@ The product is not a single agent that “does research and claims success.” I
 creative exploration to bounded verification.
 
 ```text
-                 Research Studio (legacy, /studio)
+                 Research Studio (agent workbench, /studio)
   user question -> LangGraph exploration -> completed snapshot
                                          |
                                          | ResearchProposal v1 (UNVERIFIED JSON)
@@ -42,13 +42,13 @@ creative exploration to bounded verification.
 
 | Package / route | Owns | May not own or import |
 | --- | --- | --- |
-| `backend/co_scientist`, `/studio` | Exploration, literature, planning, legacy UI/API. | Forge runtime code or verification state. |
+| `backend/co_scientist`, `/studio` | Exploration, literature, planning, Agent Trace UI/API. | Forge runtime code or verification state. |
 | `backend/research_forge`, `/forge` | Frozen Mission lifecycle, persistence, execution, metrics, evidence, Bundle. | Studio graph, state, modules, or LLM-driven research choices. |
 | `backend/research_contracts` | Versioned JSON contracts only. | Either product package. |
 | `backend/research_gateway` | Handoff compilation and verified-report shaping. | Studio internals or Forge implementation modules. |
 
 The CI AST gate enforces these rules, including a frozen `ResearchState` field set. New handoff
-data belongs in the contract and public snapshot translation, never in the legacy graph state.
+data belongs in the contract and public snapshot translation, never in the Studio graph state.
 
 ## Contract lifecycle
 

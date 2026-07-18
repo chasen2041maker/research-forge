@@ -5,7 +5,7 @@ status: active
 
 # Research Studio code rules
 
-`co_scientist` is the legacy Research Studio. New integrations must consume only
+`co_scientist` is the Research Studio implementation package. New integrations must consume only
 `co_scientist.public_api` and transport versioned JSON contracts.
 
 Do not import `research_forge` from Studio. Do not make the Forge gateway import

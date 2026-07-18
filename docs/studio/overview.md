@@ -5,16 +5,19 @@ status: active
 
 # Research Studio
 
-Research Studio is the product name for the legacy `backend/co_scientist` application. It is kept
-because it demonstrates the research-exploration side of the product:
+Research Studio is the multi-agent research exploration workbench implemented in
+`backend/co_scientist`. It demonstrates the research-exploration side of the product:
 
 - multi-agent question refinement, literature retrieval, knowledge/gap construction, critique, and
   experiment planning;
-- optional code-generation suggestions and a visual exploration workspace;
+- optional code-generation suggestions, a visual exploration workspace, and an inspectable Agent Trace;
 - research forks and progress snapshots for an interactive Studio session.
 
 Studio is not the verification runtime. Its proposals, references, generated code, and task status
 are `UNVERIFIED` until a separately owned Forge Mission closes the required evidence chain.
+
+For the supported capability claims, topology, deterministic demos, and known limitations, read
+the [Studio capability guide](README.md).
 
 ## Local development boundary
 

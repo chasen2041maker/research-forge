@@ -1,10 +1,10 @@
 # Research Forge：把研究想法变成可复现实验
 
-> **Studio 负责探索，Forge 负责验证。**
+> **Research Studio 负责多 Agent 探索，Forge Runtime 负责证据验证。**
 >
 > 这个项目不是“让 AI 自动宣布科研成功”，而是把论文、代码版本、运行命令和指标固定下来，产出可审计、可重放的实验结论。
 
-[English summary](#english-summary) · [产品流程](docs/product/studio-forge-workflow.md) · [部署手册](docs/operations/deployment.md) · [架构决策](docs/adr/README.md)
+[探索 Research Studio](docs/studio/README.md) · [查看 Forge Runtime](docs/product/overview.md) · [产品流程](docs/product/studio-forge-workflow.md) · [部署手册](docs/operations/deployment.md)
 
 <p align="center">
   <a href="https://github.com/chasen2041maker/research-forge/actions/workflows/research-forge.yml"><img src="https://github.com/chasen2041maker/research-forge/actions/workflows/research-forge.yml/badge.svg" alt="Research Forge gates" /></a>
@@ -13,7 +13,25 @@
   <img src="https://img.shields.io/badge/结果-证据门控-0891b2" alt="Evidence gated" />
 </p>
 
-## 先用一句话理解
+## 两个产品，一条清晰边界
+
+| 产品 | 它做什么 | 真实输出 | 不能宣称什么 |
+| --- | --- | --- | --- |
+| **Research Studio** | 动态专家路由、并行评审、多源检索、人机澄清、多路线研究和代码修复建议 | `UNVERIFIED` 的研究提案与可追踪 Agent 运行记录 | 已验证科研结论、自动确认执行参数、生产级自主科研系统 |
+| **Forge Runtime** | 冻结 Spec、运行受限实验、提取指标、闭合证据、封存 Bundle | `VERIFIED` 的 `VerifiedResult v1` | 自动采信 Studio 建议，或把运行中状态当成结论 |
+
+```mermaid
+flowchart LR
+    Q[研究问题] --> S[Research Studio\n多 Agent 编排工作台]
+    S --> P[UNVERIFIED Proposal\n+ Agent Trace]
+    P --> H[人确认 pin、命令、指标和预算]
+    H --> F[Forge Runtime\n证据门控执行]
+    F --> V[VERIFIED Result\n+ Bundle + Evidence]
+```
+
+Studio 的能力证明、事件类型、三套可复现演示与限制见 [Research Studio Capability Guide](docs/studio/README.md)。
+
+## Forge：先用一句话理解
 
 给 Forge 一份**冻结的实验规格**：论文文件、Git commit、Docker 镜像 digest、运行命令、指标和预算。Forge 只有在以下内容全部对得上时，才会输出 `VERIFIED`：
 

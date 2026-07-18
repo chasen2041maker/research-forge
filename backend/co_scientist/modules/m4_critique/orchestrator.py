@@ -43,6 +43,7 @@
 
 from __future__ import annotations
 
+from time import perf_counter
 from typing import Any
 
 from co_scientist.llm import get_llm
@@ -56,6 +57,7 @@ from co_scientist.prompts.templates import (
     SYSTEM_M4_ORCHESTRATOR,
     USER_M4_ORCHESTRATE,
 )
+from co_scientist.observability import emit_agent_event
 from co_scientist.utils import logger
 
 
@@ -163,7 +165,31 @@ def select_reviewers(
         调用方(roundtable.py)希望 select_reviewers 总能返回一个合法 list,
         不必 try/except。这是典型的"失败可见化但不中断"原则。
     """
+    started = perf_counter()
     llm = get_llm("chat")  # 轻量决策用 chat 档即可
+
+    def record(result: dict[str, Any]) -> dict[str, Any]:
+        emit_agent_event(
+            "orchestrator.selection",
+            step_id="m4.orchestrator",
+            agent_name="Reviewer Orchestrator",
+            agent_role="orchestrator",
+            model_role="chat",
+            input_summary=(
+                f"refined_question_chars={len(refined_question)}, "
+                f"method_summary_chars={len(method_summary)}"
+            ),
+            output_summary=(
+                f"reviewers={','.join(result['reviewers'])}; "
+                f"reason={str(result['reason'])[:160]}"
+            ),
+            duration_ms=round((perf_counter() - started) * 1000),
+            fallback=bool(result["fallback"]),
+            parent_step_id="m4",
+            outcome="DEGRADED" if result["fallback"] else "SUCCEEDED",
+            details={"selected_reviewers": list(result["reviewers"])},
+        )
+        return result
 
     try:
         result = llm.chat_json(
@@ -183,12 +209,12 @@ def select_reviewers(
         )
     except Exception as e:
         logger.warning("[M4-orch] LLM 失败,走全量降级: {}", e)
-        return _fallback_all_reviewers()
+        return record(_fallback_all_reviewers())
 
     raw_list = result.get("reviewers") or []
     if not isinstance(raw_list, list):
         logger.warning("[M4-orch] reviewers 字段格式错误({}),走全量降级", type(raw_list))
-        return _fallback_all_reviewers()
+        return record(_fallback_all_reviewers())
 
     cleaned = _sanitize_selection(raw_list)
     reason = str(result.get("reason", "")).strip() or "(无理由)"
@@ -199,11 +225,11 @@ def select_reviewers(
         cleaned,
         reason[:80],
     )
-    return {
+    return record({
         "reviewers": cleaned,
         "reason": reason,
         "fallback": False,
-    }
+    })
 
 
 def resolve_personas(names: list[str]) -> list[ReviewerPersona]:

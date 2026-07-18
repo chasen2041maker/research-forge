@@ -120,7 +120,7 @@ interface Snapshot {
 interface ProgressNode {
   id: string;
   label: string;
-  status: "pending" | "running" | "done" | "error" | "skipped";
+  status: "pending" | "running" | "done" | "degraded" | "error" | "skipped";
   error?: string;
 }
 
@@ -649,6 +649,7 @@ function ProgressTimeline({
 function ProgressIcon({ status }: { status: ProgressNode["status"] }) {
   if (status === "running") return <Loader2 className="w-4 h-4 animate-spin text-cyan-300" />;
   if (status === "done") return <CheckCircle2 className="w-4 h-4 text-green-400" />;
+  if (status === "degraded") return <AlertCircle className="w-4 h-4 text-amber-400" />;
   if (status === "error") return <AlertCircle className="w-4 h-4 text-red-400" />;
   if (status === "skipped") return <Clock className="w-4 h-4 text-gray-500" />;
   return <Circle className="w-4 h-4 text-gray-600" />;
@@ -657,6 +658,7 @@ function ProgressIcon({ status }: { status: ProgressNode["status"] }) {
 function progressClass(status: ProgressNode["status"]) {
   if (status === "running") return "border-cyan-600 bg-cyan-950/30 text-cyan-100";
   if (status === "done") return "border-green-800 bg-green-950/20 text-green-100";
+  if (status === "degraded") return "border-amber-800 bg-amber-950/30 text-amber-100";
   if (status === "error") return "border-red-800 bg-red-950/30 text-red-100";
   if (status === "skipped") return "border-gray-800 bg-gray-950 text-gray-500";
   return "border-gray-800 bg-gray-950 text-gray-400";
@@ -666,6 +668,8 @@ function StatusText({ status }: { status: string }) {
   const cls =
     status === "done"
       ? "text-green-300"
+      : status === "degraded"
+      ? "text-amber-300"
       : status === "error"
       ? "text-red-300"
       : status === "running"
